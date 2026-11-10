@@ -1,0 +1,17 @@
+{
+  "name": "bridge-outreach",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Track investors, partners and conferences, find leads, and draft the email and LinkedIn message for each one.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@glasser-ai/cli": "latest"
+  }
+}
