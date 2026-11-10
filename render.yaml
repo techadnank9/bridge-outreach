@@ -1,0 +1,25 @@
+# Render setup for Bridge Outreach: one web service that serves both the page and the API.
+services:
+  - type: web
+    name: outreach
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm ci
+    startCommand: node server.mjs
+    healthCheckPath: /healthz
+    envVars:
+      # The pipeline database lives on the disk below so it survives restarts and redeploys.
+      - key: DATA_DIR
+        value: /var/data
+      # Secrets: Render asks for these when the service is created. They are never stored in this repo.
+      - key: APP_PASSWORD # the password for signing in to the app; without it the app stays locked
+        sync: false
+      - key: GLASSER_API_KEY # turns on lead finding
+        sync: false
+      - key: ANTHROPIC_API_KEY # optional: AI-written drafts instead of the template
+        sync: false
+    disk:
+      name: outreach-data
+      mountPath: /var/data
+      sizeGB: 1
