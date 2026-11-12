@@ -92,7 +92,22 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  -- The latest paid search on each tab, kept so a reload or tab switch never throws away results that cost money.
+  CREATE TABLE IF NOT EXISTS lead_results (kind TEXT PRIMARY KEY, rows TEXT NOT NULL, search TEXT NOT NULL, at TEXT NOT NULL);
 `);
+
+function saveLeadResults(kind, rows, search) {
+  db.prepare("INSERT INTO lead_results (kind, rows, search, at) VALUES (?, ?, ?, ?) ON CONFLICT(kind) DO UPDATE SET rows = excluded.rows, search = excluded.search, at = excluded.at")
+    .run(kind, JSON.stringify(rows), JSON.stringify(search), new Date().toISOString());
+}
+
+function leadResults() {
+  const out = {};
+  for (const r of db.prepare("SELECT * FROM lead_results").all()) {
+    out[r.kind] = { rows: JSON.parse(r.rows), search: JSON.parse(r.search), at: r.at };
+  }
+  return out;
+}
 if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "gmail_draft_at")) {
   db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_at TEXT");
 }
@@ -471,13 +486,23 @@ async function leadRoutes(req, res, parts) {
     const query = tidy(body.query, 300);
     if (query.length < 8) return send(res, 400, { error: "Describe what your company does in a few words." });
     const count = [5, 10, 20].includes(Number(body.count)) ? Number(body.count) : 5;
-    return send(res, 200, await findInvestors({ query, count, earlyOnly: body.earlyOnly !== false }));
+    const result = await findInvestors({ query, count, earlyOnly: body.earlyOnly !== false });
+    if (result.rows?.length) saveLeadResults("investor", result.rows, { query, count, early: body.earlyOnly !== false });
+    return send(res, 200, { ...result, leadResults: leadResults() });
   }
   if (parts[2] === "people") {
     const keywords = splitList(body.keywords, 8);
     const titles = splitList(body.titles, 8);
     if (!keywords.length || !titles.length) return send(res, 400, { error: "Add at least one keyword and one role." });
-    return send(res, 200, await findPeople({ kind: body.kind === "conference" ? "conference" : "partner", keywords, titles }));
+    const kind = body.kind === "conference" ? "conference" : "partner";
+    const result = await findPeople({ kind, keywords, titles });
+    if (result.rows?.length) saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", ") });
+    return send(res, 200, { ...result, leadResults: leadResults() });
+  }
+  if (parts[2] === "clear") {
+    const kind = KINDS.includes(body.kind) ? body.kind : "";
+    if (kind) db.prepare("DELETE FROM lead_results WHERE kind = ?").run(kind);
+    return send(res, 200, state());
   }
   if (parts[2] === "add") {
     let added = 0, skipped = 0;
@@ -793,6 +818,7 @@ function state() {
     ai: aiEnabled,
     auth: authRequired,
     leads: { enabled: leadsEnabled, pricePerFirm: PRICE_PER_FIRM, pricePerLookup: PRICE_PER_LOOKUP },
+    leadResults: leadResults(),
     gmail: { configured: gmailConfigured, connected: gmailConnected(), address: getSecret("gmail_address"), redirect: GOOGLE_REDIRECT },
     kinds: KINDS,
     stages: STAGES,

@@ -299,12 +299,29 @@ function bindRows() {
 // ---------- find leads ----------
 
 let find = {
-  tab: "investor", rows: [], picked: new Set(), note: "", busy: false, balance: null,
+  tab: "investor", loaded: null, rows: [], at: null, picked: new Set(), note: "", busy: false, balance: null,
   investor: { query: "AI meeting facilitation, group collaboration and collective intelligence software", count: 5, early: true },
   partner: { keywords: "community platform, leadership development, facilitation", titles: "Partnerships, Community, Head of People" },
   conference: { keywords: "conference, summit, events", titles: "Program Director, Head of Events, Organizer" },
 };
 const money = (n) => "$" + Number(n).toFixed(2);
+
+// A found lead is already in the pipeline when an existing contact has the same organisation and person.
+const inPipeline = (r) => S.contacts.some((c) =>
+  (c.org || "").toLowerCase() === (r.org || "").toLowerCase() && (c.name || "").toLowerCase() === (r.name || "").toLowerCase());
+
+// Search results are saved on the server per tab, so a reload or tab switch shows the last search again.
+function loadSavedResults() {
+  const saved = (S.leadResults || {})[find.tab];
+  find.loaded = find.tab;
+  find.rows = saved ? saved.rows : [];
+  find.at = saved ? saved.at : null;
+  find.picked = new Set(find.rows.map((r, i) => (inPipeline(r) ? -1 : i)).filter((i) => i >= 0));
+  if (saved && saved.search) {
+    if (find.tab === "investor") find.investor = { ...find.investor, ...saved.search };
+    else find[find.tab] = { ...find[find.tab], ...saved.search };
+  }
+}
 
 function readFindForm() {
   if (find.tab === "investor") {
@@ -319,6 +336,7 @@ function renderFind() {
     $("#main").innerHTML = `<h2>Find leads</h2><div class="empty"><b>Lead finding is not set up on this machine</b>It needs the Glasser tool installed and signed in.</div>`;
     return;
   }
+  if (find.loaded !== find.tab) loadSavedResults();
   const t = find.tab, p = S.leads;
   const cost = t === "investor" ? find.investor.count * p.pricePerFirm + p.pricePerLookup : p.pricePerLookup;
   const label = { investor: "investors", partner: "partners", conference: "conference contacts" }[t];
@@ -348,9 +366,10 @@ function renderFind() {
       <div class="row"><button class="btn primary" id="frun" ${find.busy ? "disabled" : ""}>${find.busy ? "Searching..." : `Find ${label} · about ${money(cost)}`}</button></div>
     </div>
     ${rows.length ? `
+      <div class="bar"><span class="who">Last search${find.at ? ` · ${fmtDate(find.at)} ${new Date(find.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""} · ${rows.length} results, ${rows.filter(inPipeline).length} in pipeline</span><button class="btn small" id="fclear">Clear results</button></div>
       <table class="plain"><thead><tr><th class="check"></th><th>Organisation</th><th>Person</th><th>Role</th><th>LinkedIn</th><th>Email</th><th>Why they fit</th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr class="pick">
-        <td class="check"><input type="checkbox" data-pick="${i}" aria-label="Select ${esc(r.name || r.org)}" ${find.picked.has(i) ? "checked" : ""}></td>
+        <td class="check">${inPipeline(r) ? `<span class="yes" title="Already in your pipeline">✓</span>` : `<input type="checkbox" data-pick="${i}" aria-label="Select ${esc(r.name || r.org)}" ${find.picked.has(i) ? "checked" : ""}>`}</td>
         <td><div class="org">${esc(r.org)}</div></td>
         <td>${esc(r.name) || `<span class="who">No person found</span>`}</td>
         <td class="who">${esc(r.role)}</td>
@@ -359,9 +378,9 @@ function renderFind() {
         <td class="fit">${esc(r.fit)}</td>
       </tr>`).join("")}
       </tbody></table>
-      <div class="actionbar"><span>${find.picked.size} of ${rows.length} selected</span><button class="btn primary" id="fadd" ${find.picked.size ? "" : "disabled"}>Add to pipeline</button></div>` : ""}`;
+      <div class="actionbar"><span>${find.picked.size} of ${rows.filter((r) => !inPipeline(r)).length} new selected</span><button class="btn primary" id="fadd" ${find.picked.size ? "" : "disabled"}>Add to pipeline</button></div>` : ""}`;
 
-  $("#main").querySelectorAll("[data-find]").forEach((b) => (b.onclick = () => { readFindForm(); find.tab = b.dataset.find; find.rows = []; find.picked = new Set(); find.note = ""; renderFind(); }));
+  $("#main").querySelectorAll("[data-find]").forEach((b) => (b.onclick = () => { readFindForm(); find.tab = b.dataset.find; find.loaded = null; find.note = ""; renderFind(); }));
   const fcount = $("#fcount");
   if (fcount) fcount.onchange = () => { readFindForm(); renderFind(); };
   $("#main").querySelectorAll("[data-pick]").forEach((box) => (box.onchange = () => {
@@ -371,13 +390,14 @@ function renderFind() {
   }));
   $("#frun").onclick = async () => {
     readFindForm();
-    find.busy = true; find.note = ""; find.rows = []; find.picked = new Set(); renderFind();
+    find.busy = true; find.note = ""; renderFind();
     try {
       const body = find.tab === "investor"
         ? { query: find.investor.query, count: find.investor.count, earlyOnly: find.investor.early }
         : { kind: find.tab, keywords: find[find.tab].keywords, titles: find[find.tab].titles };
       const r = await call("POST", find.tab === "investor" ? "/api/leads/investors" : "/api/leads/people", body);
-      find.rows = r.rows; find.picked = new Set(r.rows.map((_, i) => i));
+      if (r.leadResults) S.leadResults = r.leadResults;
+      if (r.rows.length) loadSavedResults();
       find.note = r.warning || (r.rows.length ? "" : "Nothing matched, so nothing was charged. Try broader wording.");
       if (r.rows.length) toast(`Found ${r.rows.length}. Charged ${money(r.charge)}.`);
       loadBalance();
@@ -388,9 +408,15 @@ function renderFind() {
   const fadd = $("#fadd");
   if (fadd) fadd.onclick = async () => {
     const r = await call("POST", "/api/leads/add", { rows: find.rows.filter((_, i) => find.picked.has(i)) });
-    toast(`Added ${r.added}${r.skipped ? `, skipped ${r.skipped} already in your pipeline` : ""}`);
-    find.rows = []; find.picked = new Set();
-    view = "pipeline"; filter = { kind: "all", stage: "all", q: "" }; render();
+    toast(`Added ${r.added} to your pipeline${r.skipped ? `, skipped ${r.skipped} already there` : ""}`);
+    readFindForm(); find.loaded = null; render();
+  };
+  const fclear = $("#fclear");
+  if (fclear) fclear.onclick = async () => {
+    if (!confirm("Clear these search results? Leads already added to your pipeline stay there.")) return;
+    readFindForm();
+    await call("POST", "/api/leads/clear", { kind: find.tab });
+    find.loaded = null; renderFind();
   };
   if (find.balance === null) loadBalance();
 }
