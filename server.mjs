@@ -94,7 +94,54 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   -- The latest paid search on each tab, kept so a reload or tab switch never throws away results that cost money.
   CREATE TABLE IF NOT EXISTS lead_results (kind TEXT PRIMARY KEY, rows TEXT NOT NULL, search TEXT NOT NULL, at TEXT NOT NULL);
+  -- Every lead any search has ever returned, one row per organisation and person.
+  CREATE TABLE IF NOT EXISTS leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    org TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT '',
+    linkedin TEXT NOT NULL DEFAULT '',
+    website TEXT NOT NULL DEFAULT '',
+    fit TEXT NOT NULL DEFAULT '',
+    email_available INTEGER NOT NULL DEFAULT 0,
+    search TEXT NOT NULL DEFAULT '',
+    found_at TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    times_found INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS leads_unique ON leads (kind, lower(org), lower(name));
 `);
+
+// Adds new leads and refreshes ones found before, keeping any detail the new search left blank.
+function storeLeads(rows, searchLabel) {
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`
+    INSERT INTO leads (kind, org, name, role, linkedin, website, fit, email_available, search, found_at, seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (kind, lower(org), lower(name)) DO UPDATE SET
+      role = CASE WHEN excluded.role <> '' THEN excluded.role ELSE role END,
+      linkedin = CASE WHEN excluded.linkedin <> '' THEN excluded.linkedin ELSE linkedin END,
+      website = CASE WHEN excluded.website <> '' THEN excluded.website ELSE website END,
+      fit = CASE WHEN excluded.fit <> '' THEN excluded.fit ELSE fit END,
+      email_available = max(email_available, excluded.email_available),
+      seen_at = excluded.seen_at,
+      times_found = times_found + 1`);
+  for (const r of rows) {
+    const org = String(r.org || "").trim(), name = String(r.name || "").trim();
+    if (!org && !name) continue;
+    upsert.run(r.kind || "investor", org, name, String(r.role || ""), String(r.linkedin || ""), String(r.website || ""),
+      String(r.fit || ""), r.email_available ? 1 : 0, String(searchLabel || "").slice(0, 300), now, now);
+  }
+}
+
+// Leads found before this table existed live only in the saved per-tab results; copy them in once.
+if (!db.prepare("SELECT 1 FROM leads LIMIT 1").get()) {
+  for (const r of db.prepare("SELECT * FROM lead_results").all()) {
+    const search = JSON.parse(r.search);
+    storeLeads(JSON.parse(r.rows), search.query || search.keywords || "");
+  }
+}
 
 function saveLeadResults(kind, rows, search) {
   db.prepare("INSERT INTO lead_results (kind, rows, search, at) VALUES (?, ?, ?, ?) ON CONFLICT(kind) DO UPDATE SET rows = excluded.rows, search = excluded.search, at = excluded.at")
@@ -487,8 +534,11 @@ async function leadRoutes(req, res, parts) {
     if (query.length < 8) return send(res, 400, { error: "Describe what your company does in a few words." });
     const count = [5, 10, 20].includes(Number(body.count)) ? Number(body.count) : 5;
     const result = await findInvestors({ query, count, earlyOnly: body.earlyOnly !== false });
-    if (result.rows?.length) saveLeadResults("investor", result.rows, { query, count, early: body.earlyOnly !== false });
-    return send(res, 200, { ...result, leadResults: leadResults() });
+    if (result.rows?.length) {
+      saveLeadResults("investor", result.rows, { query, count, early: body.earlyOnly !== false });
+      storeLeads(result.rows, query);
+    }
+    return send(res, 200, { ...result, leadResults: leadResults(), allLeads: state().allLeads });
   }
   if (parts[2] === "people") {
     const keywords = splitList(body.keywords, 8);
@@ -496,8 +546,17 @@ async function leadRoutes(req, res, parts) {
     if (!keywords.length || !titles.length) return send(res, 400, { error: "Add at least one keyword and one role." });
     const kind = body.kind === "conference" ? "conference" : "partner";
     const result = await findPeople({ kind, keywords, titles });
-    if (result.rows?.length) saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", ") });
-    return send(res, 200, { ...result, leadResults: leadResults() });
+    if (result.rows?.length) {
+      saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", ") });
+      storeLeads(result.rows, `${keywords.join(", ")} · ${titles.join(", ")}`);
+    }
+    return send(res, 200, { ...result, leadResults: leadResults(), allLeads: state().allLeads });
+  }
+  if (parts[2] === "forget") {
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Number.isInteger).slice(0, 1000);
+    const del = db.prepare("DELETE FROM leads WHERE id = ?");
+    for (const id of ids) del.run(id);
+    return send(res, 200, state());
   }
   if (parts[2] === "clear") {
     const kind = KINDS.includes(body.kind) ? body.kind : "";
@@ -819,6 +878,7 @@ function state() {
     auth: authRequired,
     leads: { enabled: leadsEnabled, pricePerFirm: PRICE_PER_FIRM, pricePerLookup: PRICE_PER_LOOKUP },
     leadResults: leadResults(),
+    allLeads: db.prepare("SELECT * FROM leads ORDER BY seen_at DESC, id DESC LIMIT 5000").all(),
     gmail: { configured: gmailConfigured, connected: gmailConnected(), address: getSecret("gmail_address"), redirect: GOOGLE_REDIRECT },
     kinds: KINDS,
     stages: STAGES,

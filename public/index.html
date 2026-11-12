@@ -61,6 +61,10 @@
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--bg); border: 1px solid var(--line); white-space: nowrap; color: var(--ink); }
   .pill.investor { background: #edf1f8; border-color: #d6dfee; }
   .pill.partner { background: #f3eef7; border-color: #e2d7ec; }
+  .score { display: inline-block; min-width: 34px; text-align: center; padding: 2px 6px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: help; }
+  .score.hot { background: #e3f1ea; color: #1f5a40; }
+  .score.warm { background: #fbf1dc; color: #7a5410; }
+  .score.cold { background: #eeeeec; color: #5c5a54; }
   .pill.conference { background: #f8f1e6; border-color: #ecdcc2; }
   .pill.s-Contacted { background: var(--warn-bg); border-color: #efd9ae; }
   .pill.s-Replied, .pill.s-Meeting { background: var(--soft); border-color: #cfe0d8; color: var(--accent); }
@@ -208,6 +212,7 @@ function renderNav() {
   const items = [
     ["pipeline", "Pipeline", "Pipeline", S.contacts.length],
     ["find", "Find leads", "Find", ""],
+    ["leads", "All leads", "Leads", (S.allLeads || []).filter((l) => !inPipeline(l)).length],
     ["followups", "Follow-ups", "Follow-ups", followups().length],
     ["import", "Import", "Import", ""],
     ["settings", "Your pitch", "Pitch", ""],
@@ -397,6 +402,7 @@ function renderFind() {
         : { kind: find.tab, keywords: find[find.tab].keywords, titles: find[find.tab].titles };
       const r = await call("POST", find.tab === "investor" ? "/api/leads/investors" : "/api/leads/people", body);
       if (r.leadResults) S.leadResults = r.leadResults;
+      if (r.allLeads) S.allLeads = r.allLeads;
       if (r.rows.length) loadSavedResults();
       find.note = r.warning || (r.rows.length ? "" : "Nothing matched, so nothing was charged. Try broader wording.");
       if (r.rows.length) toast(`Found ${r.rows.length}. Charged ${money(r.charge)}.`);
@@ -430,6 +436,112 @@ async function loadBalance() {
     if (r.available !== null) { find.balance = Number(r.available); if (view === "find" && !find.busy) { readFindForm(); renderFind(); } }
   } catch { /* the balance is a convenience; searches still work without it */ }
   balanceLoading = false;
+}
+
+// ---------- all leads ----------
+
+let leadsView = { q: "", kind: "all", status: "new", category: "all", picked: new Set() };
+
+// Category comes from the person's role; the score adds up signals that make a lead worth reaching first.
+const DECIDER = /\b(founder|co-?founder|ceo|chief|president|owner|managing (partner|director)|general partner|gp|partner|principal|head|vp|vice president|director|chair)\b/i;
+const INFLUENCER = /\b(manager|lead|senior|sr\.?|associate|investor|analyst|program|producer|curator|coordinator|organi[sz]er|events?|community|partnerships?)\b/i;
+function rateLead(l) {
+  const why = [];
+  let score = 0;
+  let category = "Firm only";
+  if (l.name) {
+    if (DECIDER.test(l.role || "")) { category = "Decision maker"; score += 35; why.push("Decision maker role +35"); }
+    else if (INFLUENCER.test(l.role || "")) { category = "Influencer"; score += 22; why.push("Influencer role +22"); }
+    else { category = "Contact"; score += 12; why.push("Named contact +12"); }
+    if (l.linkedin) { score += 15; why.push("LinkedIn profile +15"); }
+    if (l.email_available) { score += 20; why.push("Email available +20"); }
+  } else {
+    score += 5; why.push("Organisation only, no person yet +5");
+  }
+  if ((l.fit || "").trim().length > 10) { score += 15; why.push("Clear reason they fit +15"); }
+  if (l.website) { score += 5; why.push("Website known +5"); }
+  const repeats = Math.min(Math.max((l.times_found || 1) - 1, 0), 2);
+  if (repeats) { score += repeats * 5; why.push(`Found by ${repeats + 1} searches +${repeats * 5}`); }
+  score = Math.min(score, 100);
+  const tier = score >= 70 ? "Hot" : score >= 45 ? "Warm" : "Cold";
+  return { score, tier, category, why };
+}
+const CATEGORIES = ["Decision maker", "Influencer", "Contact", "Firm only"];
+
+function visibleLeads() {
+  const q = leadsView.q.toLowerCase();
+  return (S.allLeads || []).filter((l) =>
+    (leadsView.kind === "all" || l.kind === leadsView.kind) &&
+    (leadsView.status === "all" || (leadsView.status === "pipeline") === inPipeline(l)) &&
+    (leadsView.category === "all" || rateLead(l).category === leadsView.category) &&
+    (!q || [l.org, l.name, l.role, l.fit, l.search].join(" ").toLowerCase().includes(q)))
+    .sort((a, b) => rateLead(b).score - rateLead(a).score);
+}
+
+function renderAllLeads() {
+  const all = S.allLeads || [];
+  const list = visibleLeads();
+  const shownIds = new Set(list.map((l) => l.id));
+  leadsView.picked = new Set([...leadsView.picked].filter((id) => shownIds.has(id)));
+  const pickable = list.filter((l) => !inPipeline(l));
+  const allPicked = pickable.length > 0 && pickable.every((l) => leadsView.picked.has(l.id));
+  const counts = { new: all.filter((l) => !inPipeline(l)).length, pipeline: all.filter(inPipeline).length, all: all.length };
+  $("#main").innerHTML = `
+    <h2>All leads</h2>
+    <p class="sub">Every lead your searches have found, kept in one place. Nothing is charged again to see them.</p>
+    <div class="bar">
+      <div class="tabs">${[["new", "New"], ["pipeline", "In pipeline"], ["all", "All"]].map(([id, name]) => `<button data-lstatus="${id}" class="${leadsView.status === id ? "on" : ""}">${name} · ${counts[id]}</button>`).join("")}</div>
+      <div class="tabs">${[["all", "All types"], ["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"]].map(([id, name]) => `<button data-lkind="${id}" class="${leadsView.kind === id ? "on" : ""}">${name}</button>`).join("")}</div>
+      <select id="lcat" aria-label="Category"><option value="all">All categories</option>${CATEGORIES.map((c) => `<option ${leadsView.category === c ? "selected" : ""}>${c}</option>`).join("")}</select>
+      <input type="search" id="lq" placeholder="Search leads" value="${esc(leadsView.q)}" aria-label="Search leads">
+    </div>
+    ${!all.length ? `<div class="empty"><b>No leads yet</b>Run a search on Find leads. Every result is saved here.</div>` : !list.length ? `<div class="empty"><b>No leads match</b>Try another filter or search.</div>` : `
+      <table class="plain"><thead><tr>
+        <th class="check">${pickable.length ? `<input type="checkbox" id="lall" aria-label="Select all shown" ${allPicked ? "checked" : ""}>` : ""}</th>
+        <th>Score</th><th>Organisation</th><th>Person</th><th>Role</th><th>Category</th><th>Type</th><th>LinkedIn</th><th>Email</th><th>Why they fit</th><th>Found</th></tr></thead><tbody>
+      ${list.map((l) => { const r = rateLead(l); return `<tr class="pick">
+        <td class="check">${inPipeline(l) ? `<span class="yes" title="In your pipeline">✓</span>` : `<input type="checkbox" data-lpick="${l.id}" aria-label="Select ${esc(l.name || l.org)}" ${leadsView.picked.has(l.id) ? "checked" : ""}>`}</td>
+        <td><span class="score ${r.tier.toLowerCase()}" title="${esc(r.why.join("\n"))}">${r.score}</span><div class="who">${r.tier}</div></td>
+        <td><div class="org">${esc(l.org)}</div>${safeUrl(l.website) ? `<a class="who" href="${esc(safeUrl(l.website))}" target="_blank" rel="noopener">Website</a>` : ""}</td>
+        <td>${esc(l.name) || `<span class="who">No person found</span>`}</td>
+        <td class="who">${esc(l.role)}</td>
+        <td class="who">${r.category}</td>
+        <td><span class="pill ${l.kind}">${l.kind}</span></td>
+        <td>${safeUrl(l.linkedin) ? `<a href="${esc(safeUrl(l.linkedin))}" target="_blank" rel="noopener">Profile</a>` : ""}</td>
+        <td>${l.name ? (l.email_available ? `<span class="yes">Available</span>` : `<span class="who">Not listed</span>`) : ""}</td>
+        <td class="fit">${esc(l.fit)}</td>
+        <td class="who" title="${esc(l.search)}">${fmtDate(l.found_at)}</td>
+      </tr>`; }).join("")}
+      </tbody></table>
+      <div class="actionbar"><span>${leadsView.picked.size} selected · ${list.length} shown</span>
+        <span><button class="btn" id="lforget" ${leadsView.picked.size ? "" : "disabled"}>Remove</button>
+        <button class="btn primary" id="ladd" ${leadsView.picked.size ? "" : "disabled"}>Add to pipeline</button></span></div>`}`;
+
+  $("#main").querySelectorAll("[data-lstatus]").forEach((b) => (b.onclick = () => { leadsView.status = b.dataset.lstatus; renderAllLeads(); }));
+  $("#main").querySelectorAll("[data-lkind]").forEach((b) => (b.onclick = () => { leadsView.kind = b.dataset.lkind; renderAllLeads(); }));
+  $("#lcat").onchange = (e) => { leadsView.category = e.target.value; renderAllLeads(); };
+  const lq = $("#lq");
+  lq.oninput = () => { leadsView.q = lq.value; renderAllLeads(); const el = $("#lq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
+  const lall = $("#lall");
+  if (lall) lall.onchange = () => { pickable.forEach((l) => (lall.checked ? leadsView.picked.add(l.id) : leadsView.picked.delete(l.id))); renderAllLeads(); };
+  $("#main").querySelectorAll("[data-lpick]").forEach((box) => (box.onchange = () => {
+    const id = Number(box.dataset.lpick);
+    box.checked ? leadsView.picked.add(id) : leadsView.picked.delete(id);
+    renderAllLeads();
+  }));
+  const ladd = $("#ladd");
+  if (ladd) ladd.onclick = async () => {
+    const rows = (S.allLeads || []).filter((l) => leadsView.picked.has(l.id));
+    const r = await call("POST", "/api/leads/add", { rows });
+    toast(`Added ${r.added} to your pipeline${r.skipped ? `, skipped ${r.skipped} already there` : ""}`);
+    leadsView.picked = new Set(); find.loaded = null; render();
+  };
+  const lforget = $("#lforget");
+  if (lforget) lforget.onclick = async () => {
+    if (!confirm(`Remove ${leadsView.picked.size} lead${leadsView.picked.size === 1 ? "" : "s"} from this list? A new search can find them again.`)) return;
+    await call("POST", "/api/leads/forget", { ids: [...leadsView.picked] });
+    leadsView.picked = new Set(); render();
+  };
 }
 
 // ---------- follow-ups ----------
@@ -740,7 +852,7 @@ function renderDrawer() {
 
 function render() {
   renderNav();
-  ({ pipeline: renderPipeline, find: renderFind, followups: renderFollowups, import: renderImport, settings: renderSettings })[view]();
+  ({ pipeline: renderPipeline, find: renderFind, leads: renderAllLeads, followups: renderFollowups, import: renderImport, settings: renderSettings })[view]();
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) closeDrawer(); });
 call("GET", "/api/state")
