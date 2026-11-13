@@ -8,10 +8,23 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "build": "vite build",
+    "dev:ui": "vite"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
-    "@glasser-ai/cli": "latest"
+    "@astryxdesign/core": "^0.7.15",
+    "@astryxdesign/theme-neutral": "^0.7.15",
+    "@glasser-ai/cli": "latest",
+    "@stylexjs/stylex": "^0.19.2",
+    "lucide-react": "^1.72.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "^0.7.15",
+    "@vitejs/plugin-react": "^6.3.0",
+    "vite": "^8.3.8"
   }
 }

@@ -1482,8 +1482,20 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith("/api/")) return await api(req, res, url);
     if (url.pathname.startsWith("/auth/")) return await authRoutes(req, res, url);
+    // The interface is the React app built into dist/; the earlier single-page version stays at /classic.
+    const built = path.join(here, "dist", "index.html");
     if (url.pathname === "/" || url.pathname === "/index.html") {
+      return send(res, 200, fs.readFileSync(fs.existsSync(built) ? built : path.join(here, "public", "index.html")), "text/html; charset=utf-8");
+    }
+    if (url.pathname === "/classic") {
       return send(res, 200, fs.readFileSync(path.join(here, "public", "index.html")), "text/html; charset=utf-8");
+    }
+    if (url.pathname.startsWith("/assets/")) {
+      const file = path.join(here, "dist", path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, ""));
+      if (!file.startsWith(path.join(here, "dist", "assets")) || !fs.existsSync(file)) return send(res, 404, { error: "Not found." });
+      const types = { ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".json": "application/json", ".html": "text/html", ".mp4": "video/mp4" };
+      res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable" });
+      return res.end(fs.readFileSync(file));
     }
     return send(res, 404, { error: "Not found." });
   } catch (error) {
