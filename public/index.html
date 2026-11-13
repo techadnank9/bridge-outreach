@@ -134,6 +134,20 @@
   .why-list li::before { content: "+"; color: var(--hot); margin-right: 8px; font-weight: 600; }
   .letter { white-space: pre-wrap; line-height: 1.6; }
   .writer { font-size: 12px; color: var(--muted); }
+  .lvl { display: inline-block; font-size: 11.5px; padding: 0 7px; border-radius: 99px; border: 1px solid var(--line2); color: var(--muted); white-space: nowrap; }
+  .lvl.l1 { color: #FFD479; border-color: #6b5520; background: #2e2715; } .lvl.l2 { color: var(--hot); border-color: #5a3426; }
+  .star { background: none; border: 0; cursor: pointer; font-size: 17px; line-height: 1; color: var(--muted); padding: 2px 4px; }
+  .star.on { color: #FFD479; }
+  .review { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; max-width: 860px; background: var(--bg); }
+  .review .head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .review .subj { font-weight: 500; margin-top: 8px; }
+  .review .preview { color: var(--muted); white-space: pre-wrap; margin-top: 4px; max-height: 6.2em; overflow: hidden; }
+  .review .whynow { margin-top: 6px; font-size: 13px; }
+  .review .whynow a { color: var(--inv); }
+  .review select { width: auto; padding: 4px 8px; }
+  .stat { display: grid; grid-template-columns: 1fr 70px 70px 90px; gap: 6px; padding: 7px 0; border-bottom: 1px solid var(--line); max-width: 640px; }
+  .stat.head { color: var(--muted); font-size: 12.5px; }
+  .bar-rate { height: 6px; border-radius: 3px; background: var(--good); margin-top: 6px; }
   /* Today */
   .acts { border: 1px solid var(--line); border-radius: var(--radius); max-width: 860px; }
   .act { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
@@ -242,12 +256,13 @@ const person = (c) => [c.org ? c.name : "", c.role].filter(Boolean).join(", ");
 
 function renderNav() {
   const items = [
-    ["today", "Today", "Today", todayActions().length, true],
+    ["today", "Today", "Today", reviewQueue().length + todayActions().length, true],
     ["pipeline", "Pipeline", "Pipeline", S.contacts.length],
     ["find", "Find leads", "Find", ""],
     ["leads", "All leads", "Leads", (S.allLeads || []).filter((l) => !inPipeline(l)).length],
     ["followups", "Follow-ups", "Follow-ups", followups().length],
     ["import", "Import", "Import", ""],
+    ["insights", "What works", "Works", "", true],
     ["settings", "Your pitch", "Pitch", ""],
   ];
   $("#nav").innerHTML = `
@@ -400,6 +415,11 @@ function renderFind() {
     <h2>Find leads</h2>
     <p class="sub">Search for people to reach, with their role and LinkedIn profile. Each search shows its price before it runs.${find.balance !== null ? ` Balance: ${money(find.balance)}.` : ""}</p>
     <div class="bar"><div class="tabs">${[["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"], ["community", "Communities"]].map(([id, name]) => `<button data-find="${id}" class="${t === id ? "on" : ""}">${name}</button>`).join("")}</div></div>
+    <div class="card">
+      <label for="fplain">Describe who you want to reach</label>
+      <div class="row" style="margin-top:4px"><input type="text" id="fplain" placeholder="e.g. heads of community at professional networks for women in tech" value="${esc(find.plain || "")}" style="flex:1"><button class="btn" id="fplan">Fill in the search</button></div>
+      <p class="hint">Turns your words into the search below. Nothing is charged until you run the search.</p>
+    </div>
     ${find.note ? `<div class="notice">${esc(find.note)}</div>` : ""}
     <div class="card">
       ${form}
@@ -421,6 +441,20 @@ function renderFind() {
       <div class="actionbar"><span>${find.picked.size} of ${rows.filter((r) => !inPipeline(r)).length} new selected</span><button class="btn primary" id="fadd" ${find.picked.size ? "" : "disabled"}>Add to pipeline</button></div>` : ""}`;
 
   $("#main").querySelectorAll("[data-find]").forEach((b) => (b.onclick = () => { readFindForm(); find.tab = b.dataset.find; find.loaded = null; find.note = ""; renderFind(); }));
+  $("#fplan").onclick = async () => {
+    readFindForm();
+    find.plain = $("#fplain").value;
+    const btn = $("#fplan"); btn.disabled = true; btn.textContent = "Thinking...";
+    try {
+      const { plan } = await call("POST", "/api/leads/plan", { text: find.plain });
+      find.tab = plan.kind; find.loaded = null;
+      if (plan.kind === "investor") find.investor = { ...find.investor, query: plan.query || find.investor.query };
+      else find[plan.kind] = { keywords: (plan.keywords || []).join(", "), titles: (plan.titles || []).join(", ") };
+      renderFind();
+      find.note = `${plan.note} Check the fields, then run the search.`;
+      renderFind();
+    } catch (e) { find.note = e.message; renderFind(); }
+  };
   const fcount = $("#fcount");
   if (fcount) fcount.onchange = () => { readFindForm(); renderFind(); };
   $("#main").querySelectorAll("[data-pick]").forEach((box) => (box.onchange = () => {
@@ -481,6 +515,7 @@ let leadsView = { q: "", kind: "all", status: "new", category: "all", picked: ne
 const DECIDER = /\b(founder|co-?founder|ceo|chief|president|owner|managing (partner|director)|general partner|gp|partner|principal|head|vp|vice president|director|chair)\b/i;
 const INFLUENCER = /\b(manager|lead|senior|sr\.?|associate|investor|analyst|program|producer|curator|coordinator|organi[sz]er|events?|community|partnerships?)\b/i;
 function rateLead(l) {
+  if (l.rating) return l.rating;
   const why = [];
   let score = 0;
   let category = "Firm only";
@@ -502,7 +537,15 @@ function rateLead(l) {
   return { score, tier, category, why };
 }
 const CATEGORIES = ["Decision maker", "Influencer", "Contact", "Firm only"];
-const grade = (r) => `<span class="score ${r.tier.toLowerCase()}" title="${esc(r.why.join("\n"))}">${r.score}<i>${r.tier}</i></span>`;
+const grade = (r) => `<span class="score ${r.tier.toLowerCase()}" title="${esc(r.why.join("\n"))}">${r.score}<i>${r.tier}</i></span>${r.level ? ` <span class="lvl l${r.level}">${r.level === 1 ? "★ " : ""}${r.levelName}</span>` : ""}`;
+const star = (x, attr) => `<button class="star ${x.dream ? "on" : ""}" ${attr} aria-pressed="${x.dream ? "true" : "false"}" title="${x.dream ? "Dream target. Click to unmark." : "Mark as a dream target"}">${x.dream ? "★" : "☆"}</button>`;
+const sources = (x) => { try { return JSON.parse(x.why_now_sources || "[]"); } catch { return []; } };
+const dueBack = (c) => c.review === "snoozed" && c.snooze_until && c.snooze_until <= new Date().toISOString();
+// Drafts waiting for a yes: first emails not sent yet, and follow-ups that are due.
+const reviewQueue = () => S.contacts.filter((c) =>
+  (c.review === "pending" || dueBack(c)) &&
+  ((["Research", "Ready"].includes(c.stage) && c.email_body) || (c.stage === "Contacted" && c.followup_body)))
+  .sort((a, b) => (a.rating?.level || 4) - (b.rating?.level || 4) || (b.rating?.score || 0) - (a.rating?.score || 0));
 
 function visibleLeads() {
   const q = leadsView.q.toLowerCase();
@@ -536,7 +579,7 @@ function renderAllLeads() {
         <th class="check">${pickable.length ? `<input type="checkbox" id="lall" aria-label="Select all shown" ${allPicked ? "checked" : ""}>` : ""}</th>
         <th>Score</th><th>Organisation</th><th>Person</th><th>Role</th><th>Category</th><th>Type</th><th>LinkedIn</th><th>Email</th><th>Why they fit</th><th>Found</th></tr></thead><tbody>
       ${list.map((l) => { const r = rateLead(l); return `<tr class="pick">
-        <td class="check">${inPipeline(l) ? `<span class="yes" title="In your pipeline">✓</span>` : `<input type="checkbox" data-lpick="${l.id}" aria-label="Select ${esc(l.name || l.org)}" ${leadsView.picked.has(l.id) ? "checked" : ""}>`}</td>
+        <td class="check">${inPipeline(l) ? `<span class="yes" title="In your pipeline">✓</span>` : `<input type="checkbox" data-lpick="${l.id}" aria-label="Select ${esc(l.name || l.org)}" ${leadsView.picked.has(l.id) ? "checked" : ""}>`}${star(l, `data-lstar="${l.id}"`)}</td>
         <td>${grade(r)}</td>
         <td><div class="org">${esc(l.org)}</div>${safeUrl(l.website) ? `<a class="who" href="${esc(safeUrl(l.website))}" target="_blank" rel="noopener">Website</a>` : ""}</td>
         <td>${esc(l.name) || `<span class="who">No person found</span>`}</td>
@@ -558,6 +601,10 @@ function renderAllLeads() {
   $("#lcat").onchange = (e) => { leadsView.category = e.target.value; renderAllLeads(); };
   const lq = $("#lq");
   lq.oninput = () => { leadsView.q = lq.value; renderAllLeads(); const el = $("#lq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
+  $("#main").querySelectorAll("[data-lstar]").forEach((b) => (b.onclick = async () => {
+    const l = (S.allLeads || []).find((x) => x.id === Number(b.dataset.lstar));
+    await call("POST", "/api/leads/dream", { id: l.id, dream: !l.dream }); renderAllLeads();
+  }));
   const lall = $("#lall");
   if (lall) lall.onchange = () => { pickable.forEach((l) => (lall.checked ? leadsView.picked.add(l.id) : leadsView.picked.delete(l.id))); renderAllLeads(); };
   $("#main").querySelectorAll("[data-lpick]").forEach((box) => (box.onchange = () => {
@@ -589,10 +636,15 @@ function todayActions() {
   for (const c of S.contacts.filter((x) => x.stage === "Replied")) {
     acts.push({ rank: 0, id: c.id, text: `${c.name || title(c)} replied`, sub: `${title(c)} · ${c.kind}`, button: "Open" });
   }
-  for (const c of followups()) {
+  for (const c of followups().filter((x) => !x.followup_body)) {
     acts.push({ rank: 1, id: c.id, text: `Follow up with ${c.name || title(c)}, ${daysSince(c.last_contacted)} days since you wrote`, sub: `${title(c)} · ${c.kind}`, button: "Open" });
   }
-  S.contacts.filter((c) => ["Research", "Ready"].includes(c.stage)).map((c) => ({ c, r: rateLead(c) }))
+  // LinkedIn as the second channel: a week after the email, if they have not replied and no request was sent.
+  for (const c of S.contacts.filter((x) => x.stage === "Contacted" && x.li_note && daysSince(x.last_contacted) >= 7)) {
+    if (S.activity.some((a) => a.contact_id === c.id && a.channel === "linkedin_note")) continue;
+    acts.push({ rank: 1.5, id: c.id, text: `Send ${c.name || title(c)} a LinkedIn connection note`, sub: `${title(c)} · no reply to your email after ${daysSince(c.last_contacted)} days`, button: "Open" });
+  }
+  S.contacts.filter((c) => ["Research", "Ready"].includes(c.stage) && !c.email_body && c.review !== "dismissed").map((c) => ({ c, r: rateLead(c) }))
     .sort((a, b) => b.r.score - a.r.score).slice(0, 4)
     .forEach(({ c, r }) => acts.push({ rank: 2, id: c.id, text: `Write to ${c.name || title(c)}`, sub: `${title(c)} · ${c.kind} · score ${r.score} ${r.tier}`, button: c.email_body ? "Open draft" : "Write" }));
   const hot = (S.allLeads || []).filter((l) => !inPipeline(l) && rateLead(l).tier === "Hot");
@@ -602,6 +654,7 @@ function todayActions() {
 
 function renderToday() {
   const acts = todayActions();
+  const queue = reviewQueue();
   const q = (window.todayQ || "").toLowerCase();
   const hits = q ? [
     ...S.contacts.filter((c) => [c.org, c.name, c.role, c.fit].join(" ").toLowerCase().includes(q)).map((c) => ({ id: c.id, text: title(c), sub: `${person(c) || c.kind} · in pipeline` })),
@@ -611,8 +664,26 @@ function renderToday() {
     <div class="topbar"><input type="search" id="tq" placeholder="Search people, firms and leads" aria-label="Search everything" value="${esc(window.todayQ || "")}"><button class="btn primary" id="tfind">Find leads</button></div>
     ${q ? `<h2>Results</h2><p class="sub">${hits.length ? `${hits.length} match${hits.length === 1 ? "" : "es"}` : "Nothing matches. Try a firm or a person's name."}</p>
       ${hits.length ? `<div class="acts">${hits.map((h, i) => `<div class="act"><span class="n">${i + 1}</span><div><p>${esc(h.text)}</p><small>${esc(h.sub)}</small></div><button class="btn small" data-i="${i}">Open</button></div>`).join("")}</div>` : ""}` : `
-    <h2>Today</h2>
-    <p class="sub">${acts.length ? "What is worth doing now, best first." : "Nothing waiting. Find leads or add a contact to get started."}</p>
+    ${queue.length ? `<h2>To review</h2>
+      <p class="sub">${queue.length} draft${queue.length === 1 ? "" : "s"} waiting for your yes, best leads first. ${S.gmail.connected ? "Approve sends it from your Gmail." : "Approve opens it in Gmail for you to send, then logs it."}</p>
+      ${queue.map((c) => { const fu = c.stage === "Contacted"; const r = c.rating || rateLead(c); const src = sources(c);
+        const n = S.activity.filter((a) => a.contact_id === c.id && /^Follow-up/.test(a.summary)).length + 1;
+        return `<div class="review" data-rid="${c.id}">
+          <div class="head"><b>${esc(c.name || title(c))}</b><span class="who">${esc([c.role, c.org].filter(Boolean).join(", "))}</span>${grade(r)}<span class="pill ${c.kind}">${c.kind}</span>${fu ? `<span class="pill s-Contacted">Follow-up ${n}</span>` : ""}</div>
+          ${c.why_now ? `<div class="whynow">Why now: ${esc(c.why_now)} ${src.map((x) => `<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">${esc(x.title)}</a>`).join(" · ")}</div>` : ""}
+          <div class="subj">${esc(fu ? c.followup_subject : c.email_subject)}</div>
+          <div class="preview">${esc(fu ? c.followup_body : c.email_body)}</div>
+          <div class="row">
+            <button class="btn small primary" data-approve="${c.id}" ${c.email ? "" : "disabled title='Add their email first'"}>${S.gmail.connected ? "Approve and send" : "Approve, open in Gmail"}</button>
+            <button class="btn small" data-edit="${c.id}">Edit</button>
+            <select data-snooze="${c.id}" aria-label="Snooze"><option value="">Snooze…</option><option value="3">3 days</option><option value="7">1 week</option><option value="14">2 weeks</option><option value="30">1 month</option></select>
+            <span class="spacer"></span>
+            <button class="btn small danger" data-dismiss="${c.id}">Dismiss</button>
+          </div>
+          ${c.email ? "" : `<p class="hint">No email yet. Open it to find their email or add it.</p>`}
+        </div>`; }).join("")}` : ""}
+    <h2 ${queue.length ? 'style="margin-top:26px"' : ""}>Today</h2>
+    <p class="sub">${acts.length ? "What is worth doing now, best first." : queue.length ? "Nothing else waiting." : "Nothing waiting. Find leads or add a contact to get started."}${S.research.enabled ? ` Automatic research and drafts today: ${S.research.today} of ${S.research.cap}.` : ""}</p>
     ${acts.length ? `<div class="acts">${acts.map((a, i) => `<div class="act"><span class="n">${i + 1}</span><div><p>${esc(a.text)}</p><small>${esc(a.sub)}</small></div><button class="btn small ${i === 0 ? "primary" : ""}" data-i="${i}">${a.button}</button></div>`).join("")}</div>` : ""}`}`;
   const list = q ? hits : acts;
   $("#main").querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => {
@@ -620,9 +691,62 @@ function renderToday() {
     if (a.id) { open = { id: a.id, tab: "outreach" }; notice = ""; view = "pipeline"; render(); renderDrawer(); }
     else { view = a.view; if (a.q) { leadsView.q = a.q; leadsView.status = "all"; } render(); }
   }));
+  const M = $("#main");
+  M.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => { open = { id: Number(b.dataset.edit), tab: "outreach" }; view = "pipeline"; render(); renderDrawer(); }));
+  M.querySelectorAll("[data-dismiss]").forEach((b) => (b.onclick = async () => {
+    const c = S.contacts.find((x) => x.id === Number(b.dataset.dismiss));
+    if (!confirm(`Dismiss ${c.name || title(c)}? They move to Passed and get no more drafts.`)) return;
+    await call("POST", `/api/contacts/${c.id}/review`, { action: "dismiss" }); toast("Dismissed"); render();
+  }));
+  M.querySelectorAll("[data-snooze]").forEach((sel) => (sel.onchange = async () => {
+    if (!sel.value) return;
+    await call("POST", `/api/contacts/${sel.dataset.snooze}/review`, { action: "snooze", days: Number(sel.value) });
+    toast(`Snoozed for ${sel.options[sel.selectedIndex].text}`); render();
+  }));
+  M.querySelectorAll("[data-approve]").forEach((b) => (b.onclick = async () => {
+    const c = S.contacts.find((x) => x.id === Number(b.dataset.approve));
+    const fu = c.stage === "Contacted";
+    const subject = fu ? c.followup_subject : c.email_subject, body = fu ? c.followup_body : c.email_body;
+    if (S.gmail.connected) {
+      b.disabled = true; b.textContent = "Sending...";
+      try { await call("POST", `/api/contacts/${c.id}/send`, { which: fu ? "followup" : "first", subject, body }); toast("Sent"); }
+      catch (e) { toast(e.message); }
+      render(); return;
+    }
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(c.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, "_blank", "noopener");
+    const n = S.activity.filter((a) => a.contact_id === c.id && /^Follow-up/.test(a.summary)).length + 1;
+    await call("POST", `/api/contacts/${c.id}/sent`, { channel: "email", summary: fu ? `Follow-up ${n} sent` : "" });
+    toast("Opened in Gmail and logged as sent"); render();
+  }));
   const tq = $("#tq");
   tq.oninput = () => { window.todayQ = tq.value; renderToday(); const el = $("#tq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
   $("#tfind").onclick = () => { view = "find"; render(); };
+}
+
+// ---------- what works ----------
+
+function renderInsights() {
+  const I = S.insights;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const table = (title, rows) => rows.length ? `<div class="card"><h3>${title}</h3>
+    <div class="stat head"><span></span><span>Sent</span><span>Replied</span><span>Reply rate</span></div>
+    ${rows.map((r) => `<div class="stat"><span>${esc(r.name)}<div class="bar-rate" style="width:${Math.max(2, Math.round(r.rate * 100))}%"></div></span><span>${r.sent}</span><span>${r.replied}</span><span>${pct(r.rate)}</span></div>`).join("")}</div>` : "";
+  $("#main").innerHTML = `
+    <h2>What works</h2>
+    <p class="sub">Every email you send is recorded with what kind of message it was. When someone replies, it is credited to the last message they got. ${I.sent < 20 ? "With fewer than 20 sends, treat these numbers as early signs, not answers." : ""}</p>
+    ${!I.sent ? `<div class="empty"><b>Nothing sent yet</b>Send or mark a few emails as sent and this page starts showing which kinds of message get replies.</div>` : `
+    <div class="stages" style="grid-template-columns:repeat(3,1fr);max-width:640px">
+      <div class="stage"><b>${I.sent}</b><span>messages sent</span></div>
+      <div class="stage"><b>${I.people}</b><span>people written to</span></div>
+      <div class="stage"><b>${I.repliedPeople}</b><span>people replied (${I.people ? pct(I.repliedPeople / I.people) : "0%"})</span></div>
+    </div>
+    ${table("Which message got the reply", I.byMessage)}
+    ${table("First emails by type", I.byKind)}
+    ${table("First emails by tier", I.byLevel)}
+    ${table("Warm intro or cold", I.byWarm)}
+    ${table("With or without a why-now reason", I.byWhyNow)}
+    ${I.replied.length ? `<div class="card"><h3>Messages that got replies</h3><ul class="log">${I.replied.map((r) => `<li><span><b>${esc(r.subject || "(no subject)")}</b><br><span class="who">${esc(r.opener)}</span></span><time>${esc(r.name || r.org)}${r.followup_n ? ` · follow-up ${r.followup_n}` : ""}</time></li>`).join("")}</ul>
+      <p class="hint">Once three first emails have replies, new drafts lean toward what these have in common.</p></div>` : ""}`}`;
 }
 
 // ---------- follow-ups ----------
@@ -692,11 +816,20 @@ function renderSettings() {
       ${field("community_ask", "From communities", "", true)}
       <div><label for="s_followup_days">Follow up after this many days</label><input type="number" min="1" id="s_followup_days" value="${esc(s.followup_days)}"></div>
     </div></div>
+    <div class="card"><h3>Your voice</h3><div class="grid">
+      ${field("voice_samples", "Two or three emails you wrote yourself", "Paste real messages you sent, to anyone. Drafts copy your tone, length, greeting and sign-off, never your sentences.", true)}
+      ${field("booking_link", "Booking link", "Your Calendly or Cal.com link. Added after the ask in emails to dream-tier leads.")}
+    </div></div>
+    <div class="card"><h3>Automation</h3><div class="grid">
+      ${field("block_list", "Block list", "One per line: a firm, a person, an email address or a website. They are left out of searches and never researched or drafted.", true)}
+      <div><label for="s_daily_research_cap">Automatic work per day</label><input type="number" min="0" id="s_daily_research_cap" value="${esc(s.daily_research_cap)}">
+        <p class="hint">How many leads a day can be researched, looked up and drafted automatically (about $0.10 to $0.20 each). 0 turns it off.</p></div>
+    </div></div>
     <div class="row" style="margin-top:0"><button class="btn primary" id="save">Save</button>${S.auth ? `<span class="spacer"></span><a class="btn" href="/logout">Sign out</a>` : ""}</div>
     <div class="card" style="margin-top:22px"><h3>Gmail</h3>
       ${S.gmail.connected ? `
         <div>Connected${S.gmail.address ? " as " + esc(S.gmail.address) : ""}. Drafts can be saved straight into this inbox, and the pipeline updates when a draft is sent or a reply arrives.</div>
-        <p class="hint">This app can create drafts and read your mail to spot sends and replies. It cannot send email.</p>
+        <p class="hint">This app sends only the emails you approve, saves drafts, and reads your mail to spot sends and replies so follow-ups stop when someone answers.</p>
         <div class="row"><button class="btn danger" id="gdisconnect">Disconnect Gmail</button></div>`
       : S.gmail.configured ? `
         <div>Connect Gmail to save drafts straight into your inbox and to have replies update the pipeline automatically.</div>
@@ -756,7 +889,12 @@ function outreachPanel(c) {
   const hasDraft = c.email_body || c.li_note || c.li_message;
   return `
     ${notice ? `<div class="notice">${esc(notice)}</div>` : ""}
-    ${(() => { const r = rateLead(c); return `<div class="card"><h3>Why they scored ${r.score} ${grade(r)}</h3><ul class="why-list">${r.why.map((w) => `<li>${esc(w.replace(/ \+\d+$/, ""))}</li>`).join("")}</ul><p class="hint">${r.category}</p></div>`; })()}
+    ${(() => { const r = rateLead(c); return `<div class="card"><h3>Why they scored ${r.score} ${grade(r)}</h3><ul class="why-list">${r.why.map((w) => `<li>${esc(w.replace(/ \+\d+$/, ""))}</li>`).join("")}</ul><p class="hint">${r.category}${r.level <= 2 ? " · strong leads are researched and drafted automatically" : ""}</p></div>`; })()}
+    <div class="card"><h3>Why now</h3>
+      ${c.why_now ? `<div>${esc(c.why_now)}</div><div class="row" style="margin-top:6px">${sources(c).map((x) => `<a class="btn small" href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">${esc(x.title)}</a>`).join("")}</div>`
+        : `<div class="who">${c.researched_at ? "Nothing recent turned up in the last search." : "Not researched yet."}</div>`}
+      ${S.research.enabled ? `<div class="row"><button class="btn small" id="research">${c.researched_at ? "Research again" : "Research now"}</button><span class="hint" style="margin:0">Searches the web for a recent, specific reason to write. Takes up to a minute.</span></div>` : ""}
+    </div>
     <div class="card">
       <h3>1. Find the right person</h3>
       ${c.name ? `<div>${esc(c.name)}${c.role ? ", " + esc(c.role) : ""} at ${esc(c.org || "their organisation")}</div>` : `<div>No person recorded yet for ${esc(title(c))}.</div>`}
@@ -782,7 +920,8 @@ function outreachPanel(c) {
       <label for="d_email_subject">Subject</label><input type="text" id="d_email_subject" value="${esc(c.email_subject)}">
       <label for="d_email_body" style="margin-top:10px">Body</label><textarea id="d_email_body" style="min-height:230px">${esc(c.email_body)}</textarea>
       <div class="row">
-        ${S.gmail.connected ? `<button class="btn small primary" id="gdraft" ${c.email ? "" : "disabled"}>${c.gmail_draft_at ? "Save to Gmail drafts again" : "Save to Gmail drafts"}</button>` : ""}
+        ${S.gmail.connected && ["Research", "Ready"].includes(c.stage) ? `<button class="btn small primary" id="sendfirst" ${c.email ? "" : "disabled"}>Approve and send</button>` : ""}
+        ${S.gmail.connected ? `<button class="btn small" id="gdraft" ${c.email ? "" : "disabled"}>${c.gmail_draft_at ? "Save to Gmail drafts again" : "Save to Gmail drafts"}</button>` : ""}
         <button class="btn small" id="gmail" ${c.email ? "" : "disabled"}>Open in Gmail</button>
         <button class="btn small" id="mailapp" ${c.email ? "" : "disabled"}>Open in mail app</button>
         <button class="btn small" id="copyemail">Copy</button>
@@ -804,6 +943,7 @@ function outreachPanel(c) {
         <label for="d_followup_subject" style="margin-top:10px">Subject</label><input type="text" id="d_followup_subject" value="${esc(c.followup_subject)}">
         <label for="d_followup_body" style="margin-top:10px">Body</label><textarea id="d_followup_body" style="min-height:150px">${esc(c.followup_body)}</textarea>
         <div class="row">
+          ${S.gmail.connected ? `<button class="btn small primary" id="sendfu" ${c.email ? "" : "disabled"}>Send in the same thread</button>` : ""}
           <button class="btn small" id="gmailfu" ${c.email ? "" : "disabled"}>Open in Gmail</button>
           <button class="btn small" id="copyfu">Copy</button>
           <span class="spacer"></span>
@@ -863,7 +1003,7 @@ function renderDrawer() {
     <aside class="drawer" role="dialog" aria-label="Contact">
       <header>
         <div class="top">
-          <div><h2>${isNew ? "New contact" : esc(title(c))}</h2>
+          <div><h2>${isNew ? "New contact" : `${star(c, 'id="dreamc"')} ${esc(title(c))}`}</h2>
             ${isNew ? "" : `<div class="who">${esc(person(c))} <span class="pill ${c.kind}">${c.kind}</span> <span class="pill s-${c.stage}">${c.stage}</span></div>`}</div>
           <button class="btn small" id="close">Close</button>
         </div>
@@ -876,6 +1016,8 @@ function renderDrawer() {
   $("#scrim").onclick = closeDrawer;
   $("#close").onclick = closeDrawer;
   O.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { open.tab = b.dataset.tab; notice = ""; renderDrawer(); $(".body", O).scrollTop = 0; }));
+  const dreamc = $("#dreamc");
+  if (dreamc) dreamc.onclick = async () => { await call("POST", `/api/contacts/${c.id}/dream`, { dream: !c.dream }); toast(c.dream ? "Unmarked" : "Marked as a dream target"); render(); renderDrawer(); };
 
   if (open.tab === "details") {
     $("#savec").onclick = async () => {
@@ -927,6 +1069,22 @@ function renderDrawer() {
   $("#copynote").onclick = async () => { await copy($("#d_li_note").value, "Note copied"); if (li) window.open(li, "_blank", "noopener"); };
   $("#copymsg").onclick = async () => { await copy($("#d_li_message").value, "Message copied"); if (li) window.open(li, "_blank", "noopener"); };
   const compose = () => ({ to: c.email, su: $("#d_email_subject").value, body: $("#d_email_body").value });
+  const research = $("#research");
+  if (research) research.onclick = async () => {
+    research.disabled = true; research.textContent = "Researching...";
+    try { await call("POST", `/api/contacts/${c.id}/research`); notice = ""; } catch (e) { notice = e.message; }
+    render(); renderDrawer();
+  };
+  const sendNow = async (btn, which) => {
+    btn.disabled = true; btn.textContent = "Sending...";
+    const subject = which === "followup" ? $("#d_followup_subject").value : $("#d_email_subject").value;
+    const body = which === "followup" ? $("#d_followup_body").value : $("#d_email_body").value;
+    try { await call("POST", `/api/contacts/${c.id}/send`, { which, subject, body }); toast("Sent from Gmail"); notice = ""; }
+    catch (e) { notice = e.message; }
+    render(); renderDrawer();
+  };
+  const sendfirst = $("#sendfirst"); if (sendfirst) sendfirst.onclick = () => sendNow(sendfirst, "first");
+  const sendfu = $("#sendfu"); if (sendfu) sendfu.onclick = () => sendNow(sendfu, "followup");
   // Follow-up card
   const genfu = $("#genfu");
   if (genfu) genfu.onclick = async () => {
@@ -977,7 +1135,7 @@ function renderDrawer() {
 
 function render() {
   renderNav();
-  ({ today: renderToday, pipeline: renderPipeline, find: renderFind, leads: renderAllLeads, followups: renderFollowups, import: renderImport, settings: renderSettings })[view]();
+  ({ insights: renderInsights, today: renderToday, pipeline: renderPipeline, find: renderFind, leads: renderAllLeads, followups: renderFollowups, import: renderImport, settings: renderSettings })[view]();
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) closeDrawer(); });
 call("GET", "/api/state")

@@ -132,6 +132,7 @@ function storeLeads(rows, searchLabel) {
   for (const r of rows) {
     const org = String(r.org || "").trim(), name = String(r.name || "").trim();
     if (!org && !name) continue;
+    if (isBlocked(r)) continue;
     upsert.run(r.kind || "investor", org, name, String(r.role || ""), String(r.linkedin || ""), String(r.website || ""),
       String(r.fit || ""), r.email_available ? 1 : 0, String(searchLabel || "").slice(0, 300), now, now);
   }
@@ -166,6 +167,57 @@ if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === 
   db.exec("ALTER TABLE contacts ADD COLUMN followup_body TEXT NOT NULL DEFAULT ''");
 }
 const MAX_FOLLOWUPS = 3;
+const addColumn = (table, column, definition) => {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some((col) => col.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+};
+for (const table of ["contacts", "leads"]) {
+  addColumn(table, "dream", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(table, "why_now", "TEXT NOT NULL DEFAULT ''");
+  addColumn(table, "why_now_sources", "TEXT NOT NULL DEFAULT '[]'");
+  addColumn(table, "researched_at", "TEXT");
+}
+addColumn("contacts", "email_available", "INTEGER NOT NULL DEFAULT 0");
+addColumn("contacts", "review", "TEXT NOT NULL DEFAULT ''");          // '', pending, approved, snoozed, dismissed
+addColumn("contacts", "snooze_until", "TEXT");
+addColumn("contacts", "gmail_thread_id", "TEXT NOT NULL DEFAULT ''");
+addColumn("contacts", "gmail_message_id", "TEXT NOT NULL DEFAULT ''");
+// One row per message sent, so the app can learn which kinds of message get replies.
+db.exec(`CREATE TABLE IF NOT EXISTS sends (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id INTEGER NOT NULL, kind TEXT, level INTEGER, category TEXT,
+  warm INTEGER, why_now INTEGER, followup_n INTEGER, subject TEXT, opener TEXT, at TEXT NOT NULL, replied INTEGER NOT NULL DEFAULT 0
+)`);
+
+// ---------- scoring and tiers ----------
+
+// Category comes from the person's role; the score adds up signals that make a lead worth reaching first.
+const DECIDER = /\b(founder|co-?founder|ceo|chief|president|owner|managing (partner|director)|general partner|gp|partner|principal|head|vp|vice president|director|chair)\b/i;
+const INFLUENCER = /\b(manager|lead|senior|sr\.?|associate|investor|analyst|program|producer|curator|coordinator|organi[sz]er|events?|community|partnerships?)\b/i;
+const LEVELS = { 1: "Dream", 2: "Strong", 3: "Fit", 4: "Not now" };
+function rate(l) {
+  const why = [];
+  let score = 0;
+  let category = "Firm only";
+  if (l.name) {
+    if (DECIDER.test(l.role || "")) { category = "Decision maker"; score += 35; why.push("Decision maker role +35"); }
+    else if (INFLUENCER.test(l.role || "")) { category = "Influencer"; score += 22; why.push("Influencer role +22"); }
+    else { category = "Contact"; score += 12; why.push("Named contact +12"); }
+    if (l.linkedin) { score += 15; why.push("LinkedIn profile +15"); }
+    if (l.email_available || l.email) { score += 20; why.push("Email available +20"); }
+  } else {
+    score += 5; why.push("Organisation only, no person yet +5");
+  }
+  if ((l.fit || "").trim().length > 10) { score += 15; why.push("Clear reason they fit +15"); }
+  if ((l.why_now || "").trim()) { score += 10; why.push("Timely reason to write now +10"); }
+  if (l.warm_path) { score += 10; why.push("Warm introduction +10"); }
+  if (l.website) { score += 5; why.push("Website known +5"); }
+  const repeats = Math.min(Math.max((l.times_found || 1) - 1, 0), 2);
+  if (repeats) { score += repeats * 5; why.push(`Found by ${repeats + 1} searches +${repeats * 5}`); }
+  score = Math.min(score, 100);
+  const tier = score >= 70 ? "Hot" : score >= 45 ? "Warm" : "Cold";
+  const level = l.dream ? 1 : score >= 85 ? 1 : score >= 70 ? 2 : score >= 45 ? 3 : 4;
+  if (l.dream) why.unshift("Marked as a dream target");
+  return { score, tier, category, why, level, levelName: LEVELS[level] };
+}
 const followupsSent = (id) => db.prepare("SELECT count(*) AS n FROM activity WHERE contact_id = ? AND summary LIKE 'Follow-up%'").get(id).n;
 
 const DEFAULT_SETTINGS = {
@@ -181,6 +233,10 @@ const DEFAULT_SETTINGS = {
   proof: "",
   link: "https://thebridge.ai",
   followup_days: "5",
+  voice_samples: "",
+  booking_link: "",
+  block_list: "",
+  daily_research_cap: "20",
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run(key, value);
@@ -256,6 +312,20 @@ function logEvent(contact, channel, summary) {
     : contact.stage;
   db.prepare("UPDATE contacts SET stage = ?, last_contacted = COALESCE(?, last_contacted), updated_at = ? WHERE id = ?")
     .run(nextStage, outbound ? stamp : null, stamp, contact.id);
+  if (channel === "email") {
+    const followupN = Number((/^Follow-up (\d)/.exec(summary || "") || [])[1] || 0);
+    const r = rate(contact);
+    const body = followupN ? contact.followup_body : contact.email_body;
+    const opener = String(body || "").split("\n").map((l) => l.trim()).filter((l) => l && !/^(hi|hello|hey|dear)\b/i.test(l))[0] || "";
+    db.prepare("INSERT INTO sends (contact_id, kind, level, category, warm, why_now, followup_n, subject, opener, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(contact.id, contact.kind, r.level, r.category, contact.warm_path ? 1 : 0, contact.why_now ? 1 : 0, followupN,
+        followupN ? contact.followup_subject : contact.email_subject, opener.slice(0, 300), stamp);
+  }
+  if (channel === "reply") {
+    // The reply is credited to the last message they received, and the sequence stops.
+    db.prepare("UPDATE sends SET replied = 1 WHERE id = (SELECT id FROM sends WHERE contact_id = ? ORDER BY at DESC LIMIT 1)").run(contact.id);
+    db.prepare("UPDATE contacts SET review = '', followup_subject = '', followup_body = '' WHERE id = ?").run(contact.id);
+  }
 }
 
 // ---------- Gmail ----------
@@ -325,6 +395,31 @@ async function createGmailDraft(contact) {
     body: JSON.stringify({ message: { raw: Buffer.from(message, "utf8").toString("base64url") } }),
   });
   db.prepare("UPDATE contacts SET gmail_draft_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), contact.id);
+}
+
+const sentToday = () => db.prepare("SELECT count(*) AS n FROM activity WHERE channel = 'email' AND at >= ?").get(today()).n;
+const MAX_SENDS_PER_DAY = 40;
+
+// Sends from the connected Gmail. Follow-ups go into the same thread as the first email.
+async function sendGmail(c, { subject, body, followup }) {
+  if (!EMAIL_PATTERN.test(c.email)) throw new Error("This contact needs a valid email address first.");
+  if (!String(body || "").trim()) throw new Error("There is nothing to send yet.");
+  if (sentToday() >= MAX_SENDS_PER_DAY) throw new Error(`${MAX_SENDS_PER_DAY} emails sent today already. Gmail limits new senders; send the rest tomorrow.`);
+  const b64 = (text) => Buffer.from(text, "utf8").toString("base64");
+  const subj = String(subject || "").replace(/[\r\n]+/g, " ").trim();
+  const headers = [`To: ${c.email}`, `Subject: =?UTF-8?B?${b64(subj)}?=`, "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64"];
+  if (followup && c.gmail_message_id) headers.push(`In-Reply-To: ${c.gmail_message_id}`, `References: ${c.gmail_message_id}`);
+  const raw = Buffer.from([...headers, "", b64(body).replace(/(.{76})/g, "$1\r\n")].join("\r\n"), "utf8").toString("base64url");
+  const sent = await gmail("messages/send", {
+    method: "POST",
+    body: JSON.stringify({ raw, ...(followup && c.gmail_thread_id ? { threadId: c.gmail_thread_id } : {}) }),
+  });
+  if (!followup) {
+    const meta = await gmail(`messages/${sent.id}?format=metadata&metadataHeaders=Message-ID`);
+    const messageId = (meta.payload?.headers || []).find((h) => h.name.toLowerCase() === "message-id")?.value || "";
+    db.prepare("UPDATE contacts SET gmail_thread_id = ?, gmail_message_id = ? WHERE id = ?").run(sent.threadId || "", messageId, c.id);
+  }
+  return sent;
 }
 
 // Looks in Gmail for two things: drafts that have since been sent, and replies from people already contacted.
@@ -539,11 +634,42 @@ async function leadRoutes(req, res, parts) {
   }
   if (req.method !== "POST") return send(res, 404, { error: "Not found." });
   const body = await readJson(req);
+  if (parts[2] === "plan") {
+    // Turns a plain description of who to reach into search fields. The founder still runs the search.
+    const text = tidy(body.text, 400);
+    if (text.length < 6) return send(res, 400, { error: "Describe who you want to reach in a few words." });
+    if (AI_PROVIDER !== "anthropic") return send(res, 400, { error: "Plain-words search needs an Anthropic key." });
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
+    const response = await client.messages.create({
+      model: "claude-haiku-5-5",
+      max_tokens: 4000,
+      output_config: { effort: "low" },
+      system: [
+        "You turn a founder's plain description of who they want to reach into search fields for a people database.",
+        "kind is one of investor, partner, conference, community.",
+        "For investor: query describes the kind of companies those investors back, written like a company description (they are matched by portfolio). Leave keywords and titles empty.",
+        "For the others: keywords are 3 to 8 short words or phrases describing the organisations (industry, type, focus); titles are 3 to 8 job titles of the person to reach.",
+        "Put any place or size the founder mentions into the keywords. note is one plain sentence saying what the search will look for.",
+        'Return only JSON: {"kind": string, "query": string, "keywords": [string], "titles": [string], "note": string}.',
+      ].join("\n"),
+      messages: [{ role: "user", content: text }],
+    });
+    const out = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    try {
+      const plan = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
+      if (!KINDS.includes(plan.kind)) plan.kind = "partner";
+      return send(res, 200, { plan });
+    } catch {
+      return send(res, 400, { error: "Could not turn that into a search. Try describing the people and the kind of organisation." });
+    }
+  }
   if (parts[2] === "investors") {
     const query = tidy(body.query, 300);
     if (query.length < 8) return send(res, 400, { error: "Describe what your company does in a few words." });
     const count = [5, 10, 20].includes(Number(body.count)) ? Number(body.count) : 5;
     const result = await findInvestors({ query, count, earlyOnly: body.earlyOnly !== false });
+    result.rows = (result.rows || []).filter((r) => !isBlocked(r));
     if (result.rows?.length) {
       saveLeadResults("investor", result.rows, { query, count, early: body.earlyOnly !== false });
       storeLeads(result.rows, query);
@@ -556,11 +682,16 @@ async function leadRoutes(req, res, parts) {
     if (!keywords.length || !titles.length) return send(res, 400, { error: "Add at least one keyword and one role." });
     const kind = ["conference", "community"].includes(body.kind) ? body.kind : "partner";
     const result = await findPeople({ kind, keywords, titles });
+    result.rows = (result.rows || []).filter((r) => !isBlocked(r));
     if (result.rows?.length) {
       saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", ") });
       storeLeads(result.rows, `${keywords.join(", ")} · ${titles.join(", ")}`);
     }
     return send(res, 200, { ...result, leadResults: leadResults(), allLeads: state().allLeads });
+  }
+  if (parts[2] === "dream") {
+    db.prepare("UPDATE leads SET dream = ? WHERE id = ?").run(body.dream ? 1 : 0, Number(body.id));
+    return send(res, 200, state());
   }
   if (parts[2] === "forget") {
     const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Number.isInteger).slice(0, 1000);
@@ -582,10 +713,14 @@ async function leadRoutes(req, res, parts) {
         .prepare("SELECT id FROM contacts WHERE lower(org) = lower(?) AND lower(name) = lower(?)")
         .get(org, name);
       if (duplicate) { skipped++; continue; }
-      insertContact({
+      if (isBlocked({ org, name, website: row.website })) { skipped++; continue; }
+      const created = insertContact({
         kind: row.kind, org, name, role: row.role, linkedin: row.linkedin, website: row.website, fit: row.fit,
         stage: "Research",
       });
+      db.prepare("UPDATE contacts SET email_available = ?, dream = ?, why_now = ?, why_now_sources = ?, researched_at = ? WHERE id = ?")
+        .run(row.email_available ? 1 : 0, row.dream ? 1 : 0, row.why_now || "", row.why_now_sources || "[]", row.researched_at || null, created.id);
+      autopilot.enqueue(created.id);
       added++;
     }
     return send(res, 200, { added, skipped, ...state() });
@@ -651,7 +786,7 @@ function importCsv(text, defaultKind) {
       .prepare("SELECT id FROM contacts WHERE lower(org) = lower(?) AND lower(name) = lower(?)")
       .get(record.org || "", record.name || "");
     if (duplicate) { skipped++; continue; }
-    insertContact(record);
+    autopilot.enqueue(insertContact(record).id);
     added++;
   }
   return { added, skipped };
@@ -735,7 +870,10 @@ const DRAFT_SYSTEM = [
   "The reader is an investor, partner, event organiser or community leader who deletes anything that smells like a template. The test of a good message: it could only have been sent to this one person, and replying takes them ten seconds.",
   "",
   "How to write it:",
-  "- Open with the specific reason you are writing to them: the warm path if there is one, otherwise the concrete thing in why_they_fit. Never open with who you are, a pleasantry, or a compliment.",
+  "- Open with the specific reason you are writing to them: the warm path if there is one, otherwise the recent thing in why_now if supplied, otherwise the concrete thing in why_they_fit. Never open with who you are, a pleasantry, or a compliment.",
+  "- If how_the_sender_writes is supplied, those are real messages by the sender: match their tone, sentence length, greeting and sign-off habits. Never copy their sentences or facts.",
+  "- If first_emails_that_got_replies is supplied, notice what those openers and subjects have in common and lean that way, without copying them.",
+  "- If booking_link is supplied, put it on its own line straight after the ask, introduced in a few plain words.",
   "- Then ONE plain sentence on what thebridge does, framed as what this reader gets from it, short enough that they could repeat it to someone else. Do not paste or paraphrase the whole pitch; pick the part that matters to this reader.",
   "- If proof_points are supplied, add one sentence with the single proof point this reader would care most about. If none are supplied, write no proof sentence at all; never imply traction.",
   "- Put the ask alone on its own line: one small, specific next step phrased as a question, easy to say yes to. No menu of options.",
@@ -760,9 +898,9 @@ function parseDraft(text) {
   return out;
 }
 
-async function claudeText(model, messages, system = DRAFT_SYSTEM) {
+async function claudeText(model, messages, system = DRAFT_SYSTEM, timeout = 90_000) {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic();
+  const client = new Anthropic({ timeout, maxRetries: 1 });
   const response = await client.beta.messages.create({
     model,
     max_tokens: 16000,
@@ -798,7 +936,9 @@ async function writeWith(messages, system = DRAFT_SYSTEM) {
     return await claudeText(MODEL, messages, system);
   } catch (error) {
     // An account without access to the top model still gets drafts from Opus.
-    if (MODEL === "claude-fable-5-2" && (error.status === 404 || error.status === 403)) return claudeText("claude-opus-5-5", messages, system);
+    // No access to the top model, or it is too slow right now: Opus writes the draft instead.
+    const slow = /timed out|timeout/i.test(String(error?.name) + String(error?.message));
+    if (MODEL === "claude-fable-5-2" && (error.status === 404 || error.status === 403 || slow)) return claudeText("claude-opus-5-5", messages, system, 120_000);
     throw error;
   }
 }
@@ -820,10 +960,15 @@ async function aiDraft(c, s, instruction = "") {
       role: c.role || "(unknown)",
       why_they_fit: c.fit || "(not recorded)",
       warm_path: c.warm_path || "(none, this is a cold message)",
+      why_now: c.why_now || "(nothing recent found)",
       notes: c.notes || "(none)",
     },
     the_ask: askFor(s, c.kind),
   };
+  if (s.booking_link && rate(c).level === 1) facts.booking_link = s.booking_link;
+  if (s.voice_samples.trim()) facts.how_the_sender_writes = s.voice_samples.trim().slice(0, 4000);
+  const winners = db.prepare("SELECT subject, opener FROM sends WHERE replied = 1 AND followup_n = 0 ORDER BY at DESC LIMIT 5").all();
+  if (winners.length >= 3) facts.first_emails_that_got_replies = winners;
   let ask = `Write the outreach for this recipient.\n\n${JSON.stringify(facts, null, 2)}`;
   if (instruction && c.email_body) {
     ask += `\n\nThe current draft is below. Rewrite it: ${instruction}\n\n${JSON.stringify({ email_subject: c.email_subject, email_body: c.email_body, li_note: c.li_note, li_message: c.li_message }, null, 2)}`;
@@ -892,6 +1037,131 @@ async function followupFor(c, n) {
   }
   return { followup_subject: subject, followup_body: body, source: "ai" };
 }
+
+// ---------- block list ----------
+
+const blockTerms = () => getSettings().block_list.split(/[\n,]/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 2);
+function isBlocked(x) {
+  const terms = blockTerms();
+  if (!terms.length) return false;
+  const hay = [x.org, x.name, x.email, rootDomain(x.website), String(x.email || "").split("@")[1]].map((v) => String(v || "").toLowerCase());
+  return terms.some((t) => hay.some((h) => h && (h === t || (t.length > 4 && h.includes(t)))));
+}
+
+// ---------- why-now research ----------
+
+const RESEARCH_MODEL = "claude-opus-5-5";
+const RESEARCH_SYSTEM = [
+  "You research one person or organisation for a founder who is about to write to them.",
+  "Search the web for something recent (ideally the last six months) that gives a natural, specific reason to write now: a new fund or investment, a deal in a related space, a talk, an event they run, a programme or call for speakers, a post or article they wrote, a launch, a hire, a milestone.",
+  "Only use what you actually found. If nothing recent and relevant turns up, say so by returning an empty why_now. Never guess or generalise.",
+  "Return only a JSON object: {\"why_now\": at most two short plain sentences naming the specific thing and roughly when it happened, \"sources\": [{\"title\": string, \"url\": string}] with one to three of the pages you used}.",
+].join("\n");
+
+async function researchWhyNow(x) {
+  if (AI_PROVIDER !== "anthropic") throw new Error("Research needs an Anthropic key.");
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const client = new Anthropic({ timeout: 180_000, maxRetries: 1 });
+  const subject = {
+    type: x.kind, organisation: x.org, person: x.name || "(no person yet)", role: x.role || "", website: x.website || "",
+    linkedin: x.linkedin || "", what_we_know: x.fit || "", sender_company: getSettings().company, sender_pitch: getSettings().pitch,
+  };
+  let messages = [{ role: "user", content: `Find a reason to write now.\n\n${JSON.stringify(subject, null, 2)}` }];
+  let response;
+  const seen = new Map();
+  for (let turn = 0; turn < 4; turn++) {
+    response = await client.messages.create({
+      model: RESEARCH_MODEL,
+      max_tokens: 16000,
+      output_config: { effort: "medium" },
+      system: RESEARCH_SYSTEM,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+      messages,
+    });
+    for (const block of response.content) {
+      if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
+        for (const r of block.content) if (r.url) seen.set(r.url, r.title || r.url);
+      }
+    }
+    if (response.stop_reason !== "pause_turn") break;
+    messages = [...messages, { role: "assistant", content: response.content }];
+  }
+  if (response.stop_reason === "refusal") throw new Error("The model declined this research.");
+  const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  const start = text.indexOf("{"), end = text.lastIndexOf("}");
+  if (start < 0) return { why_now: "", sources: [] };
+  const parsed = JSON.parse(text.slice(start, end + 1));
+  // Keep only links the search actually returned, so no source is made up.
+  const sources = (Array.isArray(parsed.sources) ? parsed.sources : [])
+    .filter((src) => src && seen.has(src.url)).slice(0, 3).map((src) => ({ title: tidy(src.title || seen.get(src.url), 120), url: src.url }));
+  // Keep whole sentences: at most two, and never cut a word in half.
+  const full = tidy(parsed.why_now, 2000);
+  const sentences = full.match(/[^.!?]+[.!?]+(\s|$)/g) || [full];
+  let whyNow = sentences.slice(0, 2).join("").trim();
+  if (whyNow.length > 420) whyNow = sentences[0].trim();
+  return { why_now: sources.length ? whyNow : "", sources };
+}
+
+async function researchContact(c) {
+  const r = await researchWhyNow(c);
+  db.prepare("UPDATE contacts SET why_now = ?, why_now_sources = ?, researched_at = ?, updated_at = ? WHERE id = ?")
+    .run(r.why_now, JSON.stringify(r.sources), now(), now(), c.id);
+  return r;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+const researchedToday = () =>
+  db.prepare("SELECT (SELECT count(*) FROM contacts WHERE researched_at >= ?) + (SELECT count(*) FROM leads WHERE researched_at >= ?) AS n").get(today(), today()).n;
+const researchCap = () => Math.max(0, Number(getSettings().daily_research_cap) || 0);
+db.exec("CREATE TABLE IF NOT EXISTS auto_log (id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id INTEGER, what TEXT, at TEXT NOT NULL)");
+const autoToday = () => db.prepare("SELECT count(*) AS n FROM auto_log WHERE at >= ?").get(today()).n;
+const logAuto = (id, what) => db.prepare("INSERT INTO auto_log (contact_id, what, at) VALUES (?, ?, ?)").run(id, what, now());
+
+// ---------- autopilot ----------
+
+// The moment a strong or dream lead enters the pipeline: research why now, find the email for dream leads,
+// and write the first draft into the review queue. Weaker leads are left alone, so nothing is spent on them.
+const autopilot = {
+  queue: [],
+  running: false,
+  enqueue(id) {
+    if (!this.queue.includes(id)) this.queue.push(id);
+    this.run();
+  },
+  async run() {
+    if (this.running) return;
+    this.running = true;
+    try {
+      while (this.queue.length) {
+        const id = this.queue.shift();
+        try { await this.work(id); } catch (error) { console.log(`autopilot: contact ${id}: ${error.message}`); }
+      }
+    } finally { this.running = false; }
+  },
+  async work(id) {
+    let c = getContact(id);
+    if (!c || isBlocked(c) || !["Research", "Ready"].includes(c.stage) || c.review === "dismissed") return;
+    if (rate(c).level > 2) return;
+    // The daily cap covers everything done automatically, so a big search cannot drain credit overnight.
+    if (autoToday() >= researchCap()) return;
+    logAuto(id, "pipeline");
+    if (!c.researched_at && AI_PROVIDER === "anthropic" && researchedToday() < researchCap()) {
+      await researchContact(c);
+      c = getContact(id);
+    }
+    if (rate(c).level === 1 && !c.email && leadsEnabled && (c.linkedin || c.name)) {
+      try {
+        const { email } = await findEmail(c);
+        if (email) { updateContact(id, { email }); db.prepare("UPDATE contacts SET email_available = 1 WHERE id = ?").run(id); }
+      } catch { /* drafting still goes ahead without an email */ }
+      c = getContact(id);
+    }
+    if (!c.email_body && aiEnabled) {
+      const { draft, source } = await draftFor(c);
+      if (source === "ai") { updateContact(id, draft); db.prepare("UPDATE contacts SET review = 'pending' WHERE id = ?").run(id); }
+    }
+  },
+};
 
 async function draftFor(contact, instruction = "") {
   const settings = getSettings();
@@ -1006,7 +1276,7 @@ function readJson(req) {
 
 function state() {
   return {
-    contacts: db.prepare("SELECT * FROM contacts ORDER BY updated_at DESC").all(),
+    contacts: db.prepare("SELECT * FROM contacts ORDER BY updated_at DESC").all().map((c) => ({ ...c, rating: rate(c) })),
     activity: db.prepare("SELECT * FROM activity ORDER BY at DESC LIMIT 500").all(),
     settings: getSettings(),
     ai: aiEnabled,
@@ -1014,7 +1284,9 @@ function state() {
     auth: authRequired,
     leads: { enabled: leadsEnabled, pricePerFirm: PRICE_PER_FIRM, pricePerLookup: PRICE_PER_LOOKUP },
     leadResults: leadResults(),
-    allLeads: db.prepare("SELECT * FROM leads ORDER BY seen_at DESC, id DESC LIMIT 5000").all(),
+    allLeads: db.prepare("SELECT * FROM leads ORDER BY seen_at DESC, id DESC LIMIT 5000").all().map((l) => ({ ...l, rating: rate(l) })),
+    research: { today: researchedToday(), cap: researchCap(), enabled: AI_PROVIDER === "anthropic" },
+    insights: insights(),
     gmail: { configured: gmailConfigured, connected: gmailConnected(), address: getSecret("gmail_address"), redirect: GOOGLE_REDIRECT },
     kinds: KINDS,
     stages: STAGES,
@@ -1072,6 +1344,7 @@ async function api(req, res, url) {
         return send(res, 400, { error: "Add at least an organisation or a name." });
       }
       const contact = insertContact(body);
+      autopilot.enqueue(contact.id);
       return send(res, 200, { contact, ...state() });
     }
     const id = Number(parts[2]);
@@ -1094,9 +1367,56 @@ async function api(req, res, url) {
     if (method === "POST" && parts[3] === "draft") {
       const body = await readJson(req);
       const instruction = { warmer: "make it warmer and more personal, same length.", shorter: "make every field noticeably shorter.", plainer: "make it plainer and more direct, like a quick note between peers." }[body.style] || "";
+      if (isBlocked(contact)) return send(res, 400, { error: "This contact is on your block list. Remove them from it on the Your pitch page to write to them." });
       const { draft, source, warning } = await draftFor(contact, instruction);
+      if (["Research", "Ready"].includes(contact.stage)) db.prepare("UPDATE contacts SET review = 'pending' WHERE id = ?").run(id);
       updateContact(id, draft);
       return send(res, 200, { source, warning, ...state() });
+    }
+    if (method === "POST" && parts[3] === "dream") {
+      const body = await readJson(req);
+      db.prepare("UPDATE contacts SET dream = ?, updated_at = ? WHERE id = ?").run(body.dream ? 1 : 0, now(), id);
+      if (body.dream) autopilot.enqueue(id);
+      return send(res, 200, state());
+    }
+    if (method === "POST" && parts[3] === "research") {
+      try { await researchContact(contact); }
+      catch (error) { return send(res, 400, { error: `Research failed (${error.message}).`, ...state() }); }
+      return send(res, 200, state());
+    }
+    if (method === "POST" && parts[3] === "review") {
+      const body = await readJson(req);
+      if (body.action === "snooze") {
+        const days = [1, 3, 7, 14, 30].includes(Number(body.days)) ? Number(body.days) : 7;
+        db.prepare("UPDATE contacts SET review = 'snoozed', snooze_until = ?, updated_at = ? WHERE id = ?")
+          .run(new Date(Date.now() + days * 86_400_000).toISOString(), now(), id);
+      } else if (body.action === "dismiss") {
+        db.prepare("UPDATE contacts SET review = 'dismissed', stage = 'Passed', updated_at = ? WHERE id = ?").run(now(), id);
+        logEvent(getContact(id), "note", "Dismissed from the review queue");
+      } else if (body.action === "pending") {
+        db.prepare("UPDATE contacts SET review = 'pending', updated_at = ? WHERE id = ?").run(now(), id);
+      }
+      return send(res, 200, state());
+    }
+    if (method === "POST" && parts[3] === "send") {
+      // Approve and send through Gmail: the first email, or the next follow-up in the same thread.
+      const body = await readJson(req);
+      const followup = body.which === "followup";
+      if (!gmailConnected()) return send(res, 400, { error: "Connect Gmail on the Your pitch page to send from here." });
+      if (isBlocked(contact)) return send(res, 400, { error: "This contact is on your block list." });
+      try {
+        const n = followupsSent(id) + 1;
+        if (followup) db.prepare("UPDATE contacts SET followup_subject = ?, followup_body = ? WHERE id = ?").run(String(body.subject || ""), String(body.body || ""), id);
+        else updateContact(id, { email_subject: body.subject, email_body: body.body });
+        const fresh = getContact(id);
+        await sendGmail(fresh, { subject: body.subject, body: body.body, followup });
+        logEvent(fresh, "email", followup ? `Follow-up ${n} sent (Gmail)` : "Email sent (Gmail)");
+        db.prepare("UPDATE contacts SET review = 'approved' WHERE id = ?").run(id);
+        if (followup) db.prepare("UPDATE contacts SET followup_subject = '', followup_body = '' WHERE id = ?").run(id);
+        return send(res, 200, state());
+      } catch (error) {
+        return send(res, 400, { error: error.message, ...state() });
+      }
     }
     if (method === "POST" && parts[3] === "followup") {
       if (!contact.email_body) return send(res, 400, { error: "Write and send the first email before a follow-up." });
@@ -1104,7 +1424,7 @@ async function api(req, res, url) {
       if (n > MAX_FOLLOWUPS) return send(res, 400, { error: `You have sent ${MAX_FOLLOWUPS} follow-ups. More than that rarely helps; mark them as passed or wait for a reply.` });
       try {
         const f = await followupFor(contact, n);
-        db.prepare("UPDATE contacts SET followup_subject = ?, followup_body = ?, updated_at = ? WHERE id = ?").run(f.followup_subject, f.followup_body, now(), id);
+        db.prepare("UPDATE contacts SET followup_subject = ?, followup_body = ?, review = 'pending', updated_at = ? WHERE id = ?").run(f.followup_subject, f.followup_body, now(), id);
         return send(res, 200, { source: f.source, ...state() });
       } catch (error) {
         return send(res, 400, { error: `Follow-up failed (${error.message}).`, ...state() });
@@ -1170,6 +1490,64 @@ const server = http.createServer(async (req, res) => {
     return send(res, 500, { error: error.message });
   }
 });
+
+// ---------- what works ----------
+
+function insights() {
+  const sends = db.prepare("SELECT * FROM sends").all();
+  const firsts = sends.filter((x) => x.followup_n === 0);
+  const group = (rows, key, label) => {
+    const out = {};
+    for (const r of rows) {
+      const k = label(r[key], r);
+      out[k] = out[k] || { sent: 0, replied: 0 };
+      out[k].sent++; if (r.replied) out[k].replied++;
+    }
+    return Object.entries(out).map(([name, v]) => ({ name, ...v, rate: v.sent ? v.replied / v.sent : 0 })).sort((a, b) => b.sent - a.sent);
+  };
+  const people = db.prepare("SELECT count(DISTINCT contact_id) AS n FROM sends").get().n;
+  const repliedPeople = db.prepare("SELECT count(DISTINCT contact_id) AS n FROM sends WHERE replied = 1").get().n;
+  return {
+    sent: sends.length,
+    people,
+    repliedPeople,
+    byKind: group(firsts, "kind", (v) => v || "unknown"),
+    byLevel: group(firsts, "level", (v) => LEVELS[v] || "unknown"),
+    byWarm: group(firsts, "warm", (v) => (v ? "Warm intro" : "Cold")),
+    byWhyNow: group(firsts, "why_now", (v) => (v ? "With a why-now reason" : "Without one")),
+    byMessage: group(sends, "followup_n", (v) => (v ? `Follow-up ${v}` : "First email")),
+    replied: db.prepare("SELECT s.subject, s.opener, s.followup_n, s.kind, c.org, c.name FROM sends s JOIN contacts c ON c.id = s.contact_id WHERE s.replied = 1 ORDER BY s.at DESC LIMIT 10").all(),
+  };
+}
+
+// ---------- background work ----------
+
+// Every ten minutes: check Gmail for sends and replies, draft follow-ups that are due into the review
+// queue, and pick up strong leads the autopilot has not handled yet. Everything stays inside the daily cap.
+async function tick() {
+  try { if (gmailConnected()) await syncGmail(); } catch (error) { console.log(`gmail sync: ${error.message}`); }
+  if (!aiEnabled) return;
+  const days = Number(getSettings().followup_days) || 5;
+  const due = db.prepare("SELECT * FROM contacts WHERE stage = 'Contacted' AND followup_body = '' AND email_body != '' AND last_contacted IS NOT NULL").all();
+  for (const c of due) {
+    if (autoToday() >= researchCap()) break;
+    if ((Date.now() - new Date(c.last_contacted).getTime()) / 86_400_000 < days) continue;
+    if (c.review === "dismissed" || (c.review === "snoozed" && c.snooze_until > now())) continue;
+    if (isBlocked(c)) continue;
+    const n = followupsSent(c.id) + 1;
+    if (n > MAX_FOLLOWUPS) continue;
+    try {
+      logAuto(c.id, "followup");
+      const f = await followupFor(c, n);
+      db.prepare("UPDATE contacts SET followup_subject = ?, followup_body = ?, review = 'pending', updated_at = ? WHERE id = ?").run(f.followup_subject, f.followup_body, now(), c.id);
+    } catch (error) { console.log(`follow-up for ${c.id}: ${error.message}`); }
+  }
+  for (const c of db.prepare("SELECT * FROM contacts WHERE stage IN ('Research', 'Ready') AND email_body = '' AND review != 'dismissed'").all()) {
+    if (rate(c).level <= 2) autopilot.enqueue(c.id);
+  }
+}
+setInterval(tick, 10 * 60_000).unref();
+setTimeout(tick, 5_000).unref();
 
 server.listen(PORT, HOSTED ? "0.0.0.0" : "127.0.0.1", () => {
   console.log(
