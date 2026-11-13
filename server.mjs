@@ -1236,9 +1236,13 @@ async function loginRoutes(req, res, url) {
     res.writeHead(302, { Location: "/login", "Set-Cookie": "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0" });
     return res.end();
   }
+  // The designed sign-in page is built into dist/; the plain one stays as the fallback.
+  const builtLogin = path.join(here, "dist", "login.html");
+  const hasBuilt = Boolean(APP_PASSWORD) && fs.existsSync(builtLogin);
+  const back = (code) => { res.writeHead(302, { Location: `/login?error=${code}` }); return res.end(); };
   if (req.method === "POST" && APP_PASSWORD) {
     const attempt = tooManyAttempts(req);
-    if (attempt.blocked) return send(res, 429, loginPage("Too many attempts. Try again in fifteen minutes."), "text/html; charset=utf-8");
+    if (attempt.blocked) return hasBuilt ? back("locked") : send(res, 429, loginPage("Too many attempts. Try again in fifteen minutes."), "text/html; charset=utf-8");
     let raw = "";
     for await (const chunk of req) { raw += chunk; if (raw.length > 10_000) break; }
     if (sameText(new URLSearchParams(raw).get("password") || "", APP_PASSWORD)) {
@@ -1247,9 +1251,10 @@ async function loginRoutes(req, res, url) {
       return res.end();
     }
     loginAttempts.get(attempt.who).count++;
-    return send(res, 401, loginPage("That password is not right."), "text/html; charset=utf-8");
+    return hasBuilt ? back("wrong") : send(res, 401, loginPage("That password is not right."), "text/html; charset=utf-8");
   }
   if (signedIn(req)) { res.writeHead(302, { Location: "/" }); return res.end(); }
+  if (hasBuilt) return send(res, 200, fs.readFileSync(builtLogin), "text/html; charset=utf-8");
   return send(res, 200, loginPage(), "text/html; charset=utf-8");
 }
 
@@ -1469,6 +1474,14 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if (url.pathname === "/healthz") return send(res, 200, "ok", "text/plain");
+    // Built UI files carry no data, and the sign-in page needs them before anyone is signed in.
+    if (url.pathname.startsWith("/assets/")) {
+      const file = path.join(here, "dist", path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, ""));
+      if (!file.startsWith(path.join(here, "dist", "assets")) || !fs.existsSync(file)) return send(res, 404, { error: "Not found." });
+      const types = { ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".json": "application/json", ".html": "text/html", ".mp4": "video/mp4" };
+      res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable" });
+      return res.end(fs.readFileSync(file));
+    }
     if (url.pathname === "/login" || url.pathname === "/logout") return await loginRoutes(req, res, url);
     if (!signedIn(req)) {
       if (url.pathname.startsWith("/api/")) return send(res, 401, { error: "Sign in again." });
@@ -1489,13 +1502,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/classic") {
       return send(res, 200, fs.readFileSync(path.join(here, "public", "index.html")), "text/html; charset=utf-8");
-    }
-    if (url.pathname.startsWith("/assets/")) {
-      const file = path.join(here, "dist", path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, ""));
-      if (!file.startsWith(path.join(here, "dist", "assets")) || !fs.existsSync(file)) return send(res, 404, { error: "Not found." });
-      const types = { ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".json": "application/json", ".html": "text/html", ".mp4": "video/mp4" };
-      res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable" });
-      return res.end(fs.readFileSync(file));
     }
     return send(res, 404, { error: "Not found." });
   } catch (error) {

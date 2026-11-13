@@ -1,0 +1,69 @@
+/* Scoped under .od, after Stageshow's dark-hero: depth from surface steps on
+   black, one lit color (success, once), the status changing on its own pill. */
+
+.od .ss-stage {
+  overflow: hidden;
+  background: transparent;
+}
+
+/* The window inset top and left, off the right and the bottom */
+.od .od-win {
+  position: absolute;
+  top: 40px;
+  left: 40px;
+  width: 720px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+.od .ss-stage[data-layout='compact'] .od-win { left: 16px; width: 360px; top: 24px; }
+
+.od .od-side { display: grid; align-content: start; gap: 6px; padding: 14px 10px; }
+.od .od-nav { display: flex; align-items: center; gap: 9px; height: 28px; padding: 0 8px; border-radius: var(--ss-radius-sm); }
+.od .od-nav[data-active] { background: var(--ss-ink-1); }
+
+.od .od-body { min-height: 440px; padding: 20px 56px 0 16px; background: var(--ss-surface); }
+.od .ss-stage[data-layout='compact'] .od-body { padding: 16px 16px 0; }
+
+.od .od-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.od .od-title { color: var(--ss-text-strong); font-size: 15px; font-weight: 600; }
+
+.od .od-list { border-top: 1px solid var(--ss-line-faint); }
+
+.od .od-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  border-bottom: 1px solid var(--ss-line-faint);
+  white-space: nowrap;
+}
+.od .ss-stage[data-layout='compact'] .od-row { grid-template-columns: 30px minmax(0, 1fr) auto; }
+.od .ss-stage[data-layout='compact'] .od-approve,
+.od .ss-stage[data-layout='compact'] .od-row--filler > .ss-bar:last-child { display: none; }
+
+.od .od-lines { display: grid; gap: 6px; min-width: 0; }
+.od .od-lines .ss-bar { max-width: 100%; }
+
+.od .od-name { display: flex; align-items: baseline; gap: 8px; overflow: hidden; color: var(--ss-text-strong); font-size: 13px; font-weight: 500; line-height: 1.3; }
+.od .od-firm { color: var(--ss-text); font-weight: 400; font-size: 12px; }
+
+/* The why-now line resolves in place over its placeholder: same line box, no reflow */
+.od .od-why { display: grid; height: 16px; align-items: center; }
+.od .od-why > * { grid-area: 1 / 1; transition: opacity 0.35s ease; }
+.od .od-why__text { color: #9db8ff; font-size: 12px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; opacity: 0; }
+.od .od-why[data-on] .od-why__text { opacity: 1; }
+.od .od-why[data-on] .od-why__bar { opacity: 0; }
+
+.od .od-badge { justify-self: start; }
+.od .od-badge .ss-spinner { flex-shrink: 0; }
+
+.od .od-mark { display: grid; place-items: center; width: 8px; height: 8px; }
+.od .od-mark > * { grid-area: 1 / 1; transition: opacity 0.2s ease; }
+.od .od-mark[data-done] .ss-spinner, .od .od-mark:not([data-done]) .od-dot { opacity: 0; }
+.od .od-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.od .od-label { display: grid; justify-items: start; transition: width 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+.od .od-word { grid-area: 1 / 1; white-space: nowrap; opacity: 0; transition: opacity 0.14s ease; }
+.od .od-word[data-on] { opacity: 1; transition: opacity 0.2s ease 0.12s; }
+
+.od .od-row--filler > .ss-bar:nth-last-child(2) { justify-self: start; }

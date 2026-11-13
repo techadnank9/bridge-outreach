@@ -16,11 +16,13 @@
     "@anthropic-ai/sdk": "latest",
     "@astryxdesign/core": "^0.7.15",
     "@astryxdesign/theme-neutral": "^0.7.15",
+    "@designcodeio/threeui": "^1.2.0",
     "@glasser-ai/cli": "latest",
     "@stylexjs/stylex": "^0.19.2",
     "lucide-react": "^1.72.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "three": "^0.165.0"
   },
   "devDependencies": {
     "@astryxdesign/cli": "^0.7.15",

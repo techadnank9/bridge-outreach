@@ -5,6 +5,6 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   root: "web",
   plugins: [react()],
-  build: { outDir: "../dist", emptyOutDir: true, chunkSizeWarningLimit: 4000 },
+  build: { outDir: "../dist", emptyOutDir: true, chunkSizeWarningLimit: 4000, rollupOptions: { input: { main: "web/index.html", login: "web/login.html" } } },
   server: { port: 5173, proxy: { "/api": "http://localhost:3000", "/auth": "http://localhost:3000", "/logout": "http://localhost:3000" } },
 });

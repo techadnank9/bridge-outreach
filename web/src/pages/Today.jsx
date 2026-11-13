@@ -8,7 +8,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { NetworkField } from "../NetworkField.jsx";
+import { StreamConvergenceBackground } from "@designcodeio/threeui/components/StreamConvergenceBackground";
 import { Inbox, Send, PencilLine, Clock3, X } from "lucide-react";
 import { useApp, reviewQueue, todayActions, followupsSentCount, gmailCompose, title, inPipeline } from "../data.js";
 import { Grade, Kind, Level, WhyNow } from "../bits.jsx";
@@ -104,10 +104,10 @@ export function Today() {
 
   return (
     <VStack gap={6}>
-      {/* The one bold moment: your network, drawn as a live field of connected points. */}
+      {/* The one bold moment: two streams flowing together, the bridge this app builds between you and the people you write to. */}
       <div className="hero">
         <div className="hero-field" aria-hidden="true">
-          <NetworkField />
+          <StreamConvergenceBackground speed={0.45} scale={1.1} brightness={0.75} opacity={0.85} hue={-95} saturation={0.75} />
         </div>
         <div className="hero-body">
           <Text size="sm" color="secondary">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Text>

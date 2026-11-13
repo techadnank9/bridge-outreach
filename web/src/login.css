@@ -1,0 +1,14 @@
+body { font-family: var(--font-family-body, "Figtree", system-ui, sans-serif); background: #08090c; }
+.login { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(360px, 520px) minmax(0, 1fr); align-items: center; gap: 40px; padding: 48px 0 48px 64px; overflow: hidden; }
+/* The sphere's canvas paints its own black; screen drops it so only the light shows on the page. */
+.login-sphere { position: absolute; left: -12%; top: -18%; width: 70vw; height: 70vw; max-width: 980px; max-height: 980px; opacity: .6; mix-blend-mode: screen; pointer-events: none;
+  -webkit-mask-image: radial-gradient(closest-side, #000 62%, transparent 100%); mask-image: radial-gradient(closest-side, #000 62%, transparent 100%); }
+.login-side, .login-demo { position: relative; }
+/* The product shot runs off the page's right edge and fades at its foot, so it reads as the product, not a pasted box. */
+.login-demo { min-width: 0; margin-right: -140px; -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 98%); mask-image: linear-gradient(180deg, #000 72%, transparent 98%); }
+@media (max-width: 980px) {
+  .login { grid-template-columns: minmax(0, 1fr); padding: 32px 18px; gap: 28px; }
+  .login-side { min-width: 0; }
+  .login-sphere { left: -40%; width: 140vw; height: 140vw; }
+  .login-demo { margin-right: -18px; }
+}
