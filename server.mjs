@@ -22,9 +22,9 @@ const PORT = Number(process.env.PORT || 4410);
 const HOSTED = Boolean(process.env.RENDER || process.env.HOSTED);
 const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const DATA_DIR = process.env.DATA_DIR || here;
-// One shared password protects the whole app. Hosted without one, the app stays locked.
+// Optional shared password. With none set the app is open to anyone who has the address.
 const APP_PASSWORD = process.env.APP_PASSWORD || "";
-const authRequired = HOSTED || Boolean(APP_PASSWORD);
+const authRequired = Boolean(APP_PASSWORD);
 // Drafts use the strongest writer available: Claude when an Anthropic key is set, otherwise OpenAI.
 const AI_PROVIDER = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "anthropic" : process.env.OPENAI_API_KEY ? "openai" : "";
 const MODEL = process.env.DRAFT_MODEL || (AI_PROVIDER === "openai" ? "gpt-6-astra" : "claude-fable-5-2");
