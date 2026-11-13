@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { execFile } from "node:child_process";
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
+import zlib from "node:zlib";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 try {
@@ -1470,6 +1471,7 @@ async function api(req, res, url) {
   return send(res, 404, { error: "Not found." });
 }
 
+const assetCache = new Map();
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
@@ -1479,8 +1481,18 @@ const server = http.createServer(async (req, res) => {
       const file = path.join(here, "dist", path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, ""));
       if (!file.startsWith(path.join(here, "dist", "assets")) || !fs.existsSync(file)) return send(res, 404, { error: "Not found." });
       const types = { ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".json": "application/json", ".html": "text/html", ".mp4": "video/mp4" };
-      res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable" });
-      return res.end(fs.readFileSync(file));
+      // Sent compressed with an exact length: large uncompressed bodies were cut short by the host's proxy.
+      const enc = /\bbr\b/.test(req.headers["accept-encoding"] || "") ? "br" : /\bgzip\b/.test(req.headers["accept-encoding"] || "") ? "gzip" : "";
+      const key = `${file}:${enc}`;
+      if (!assetCache.has(key)) {
+        const raw = fs.readFileSync(file);
+        assetCache.set(key, enc === "br" ? zlib.brotliCompressSync(raw) : enc === "gzip" ? zlib.gzipSync(raw, { level: 9 }) : raw);
+      }
+      const body = assetCache.get(key);
+      const headers = { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "public, max-age=31536000, immutable", "Content-Length": body.length, Vary: "Accept-Encoding" };
+      if (enc) headers["Content-Encoding"] = enc;
+      res.writeHead(200, headers);
+      return res.end(body);
     }
     if (url.pathname === "/login" || url.pathname === "/logout") return await loginRoutes(req, res, url);
     if (!signedIn(req)) {
