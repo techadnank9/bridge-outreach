@@ -173,17 +173,30 @@ export function Find() {
         <VStack gap={3}>
           <HStack gap={2} vAlign="center" wrap="wrap">
             <Text size="sm" color="secondary" style={{ flex: 1 }}>
-              Last search{saved?.at ? ` · ${fmtDate(saved.at)} ${new Date(saved.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""} · {rows.length} results, {rows.length - fresh.length} in pipeline
+              Last search{saved?.at ? ` · ${fmtDate(saved.at)} ${new Date(saved.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""} · {fresh.length} new{rows.length > fresh.length ? ` · ${rows.length - fresh.length} already in your pipeline` : ""}
             </Text>
+            {rows.length > fresh.length && <Button size="sm" variant="ghost" label="Open pipeline" onClick={() => go("pipeline")} />}
           </HStack>
-          <div className="table-wrap"><Table data={rows} columns={columns} density="compact" /></div>
-          <div className="actionbar">
-            <Text size="sm">{picked.size} of {fresh.length} new selected</Text>
-            <HStack gap={2}>
-              <Button label="See all leads" onClick={() => go("leads")} />
-              <Button variant="primary" icon={<Plus size={16} />} label="Add to pipeline" isDisabled={!picked.size} clickAction={add} />
-            </HStack>
-          </div>
+          {/* Leads move to the pipeline once added, so only the ones still to decide on stay here */}
+          {fresh.length ? (
+            <>
+              <div className="table-wrap"><Table data={fresh} columns={columns} density="compact" /></div>
+              <div className="actionbar">
+                <Text size="sm">{picked.size} of {fresh.length} selected</Text>
+                <HStack gap={2}>
+                  <Button label="See all leads" onClick={() => go("leads")} />
+                  <Button variant="primary" icon={<Plus size={16} />} label="Add to pipeline" isDisabled={!picked.size} clickAction={add} />
+                </HStack>
+              </div>
+            </>
+          ) : (
+            <Card padding={4} variant="muted">
+              <HStack gap={3} vAlign="center" wrap="wrap">
+                <Text style={{ flex: 1 }}>All {rows.length} from this search are in your pipeline. Run a new search to find more.</Text>
+                <Button variant="primary" label="Open pipeline" onClick={() => go("pipeline")} />
+              </HStack>
+            </Card>
+          )}
         </VStack>
       )}
     </VStack>
