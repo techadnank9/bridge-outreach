@@ -8,7 +8,6 @@ import { Divider } from "@astryxdesign/core/Divider";
 import { Center } from "@astryxdesign/core/Center";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { Text } from "@astryxdesign/core/Text";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   Sunrise, KanbanSquare, Search, Users, Reply, LineChart, Upload, PenLine, LogOut, Orbit,
@@ -94,12 +93,6 @@ export function App() {
             }
             footer={
               <SideNavSection title="Status" isHeaderHidden>
-                <div className="nav-status">
-                  <StatusDot variant={S.ai ? "success" : "neutral"} label={S.ai ? "AI drafts on" : "Template drafts"} />
-                  <Text size="xsm" color="secondary">{S.ai ? `Drafts by ${S.aiModel}` : "Add an API key for AI drafts"}</Text>
-                  <StatusDot variant={S.gmail.connected ? "success" : "warning"} label={S.gmail.connected ? "Gmail connected" : "Gmail not connected"} />
-                  <Text size="xsm" color="secondary">{S.gmail.connected ? S.gmail.address : "Connect it on Your pitch to send"}</Text>
-                </div>
                 {S.auth && <SideNavItem label="Sign out" icon={LogOut} href="/logout" />}
               </SideNavSection>
             }>
