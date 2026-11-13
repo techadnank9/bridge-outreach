@@ -12,6 +12,12 @@ import { Code } from "@astryxdesign/core/Code";
 import { Mail, Unplug, Check, Loader2 } from "lucide-react";
 import { useApp } from "../data.js";
 
+// Same rule as the server: name, then title | website.
+const defaultSignature = (s) => {
+  const host = String(s.link || "").replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+  return [s.founder_name || "Your name", [s.founder_title, host || s.company].filter(Boolean).join(" | ")].filter(Boolean).join("\n");
+};
+
 export function Pitch() {
   const { S, act, toast } = useApp();
   const [s, setS2] = useState({ ...S.settings });
@@ -48,6 +54,17 @@ export function Pitch() {
           {line("founder_name", "Your name")}{line("founder_title", "Your title")}
           {line("company", "Company")}{line("link", "Link to share")}
         </Grid>
+        <TextArea label="Email signature" rows={4} value={s.signature || ""} onChange={set("signature")}
+          placeholder={defaultSignature(s)}
+          description="Added exactly like this to the end of every email and follow-up. Leave it empty to use the line shown in grey. Add or remove anything, like an email address or phone number, whenever you like." />
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <Button size="sm" label="Use it on drafts not sent yet" clickAction={async () => {
+            await act("PUT", "/api/settings", s);
+            const r = await act("POST", "/api/settings/apply-signature");
+            toast({ body: r.changed ? `Signature updated on ${r.changed} draft${r.changed === 1 ? "" : "s"}` : "All drafts already use it" });
+          }} />
+          <Text size="xsm" color="secondary">New drafts get it automatically. Emails already sent are not changed.</Text>
+        </HStack>
       </VStack></Card>
 
       <Card padding={5}><VStack gap={3}>

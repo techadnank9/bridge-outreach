@@ -248,6 +248,8 @@ const DEFAULT_SETTINGS = {
   followup_days: "5",
   voice_samples: "",
   booking_link: "",
+  // The email sign-off, exactly as written on Your pitch. Empty means one is built from name, title, company and link.
+  signature: "",
   block_list: "",
   daily_research_cap: "20",
 };
@@ -258,6 +260,26 @@ for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
 const now = () => new Date().toISOString();
 const getSettings = () =>
   Object.fromEntries(db.prepare("SELECT key, value FROM settings").all().map((r) => [r.key, r.value]));
+// The sign-off every email ends with: the one written on Your pitch, or name / title | company · link.
+function signatureFor(s) {
+  if (String(s.signature || "").trim()) return String(s.signature).trim();
+  const host = String(s.link || "").replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+  const line2 = [s.founder_title, host || s.company].filter(Boolean).join(" | ");
+  return [s.founder_name || "[your name]", line2].filter(Boolean).join("\n");
+}
+// Drafts are written without a sign-off; this drops one the model added anyway, then adds the real signature.
+function withSignature(body, s) {
+  let text = String(body || "").trim();
+  const paras = text.split(/\n\s*\n/);
+  const last = paras[paras.length - 1] || "";
+  const first = String(s.founder_name || "").split(" ")[0];
+  const looksLikeSignoff = paras.length > 1 && !/\?/.test(last) && last.length < 160 &&
+    (/\[your name\]/i.test(last) || (first && last.trim().toLowerCase().startsWith(first.toLowerCase())) ||
+     /^(best|cheers|thanks|regards|warmly)\b/i.test(last.trim()) ||
+     (last.split("\n").length <= 4 && /[|·]/.test(last)) || last.trim() === signatureFor(s));
+  if (looksLikeSignoff) text = paras.slice(0, -1).join("\n\n");
+  return `${text}\n\n${signatureFor(s)}`;
+}
 const getContact = (id) => db.prepare("SELECT * FROM contacts WHERE id = ?").get(id);
 
 function clean(input) {
@@ -934,10 +956,7 @@ function templateDraft(c, s) {
     "",
     "Would you be open to that?",
     "",
-    "Best,",
-    me,
-    [s.founder_title, s.company].filter(Boolean).join(", "),
-    s.link,
+    signatureFor(s),
   ].filter((line) => line !== null).join("\n");
   const note = `Hi ${first}, I'm ${me}, building ${s.company} (AI-facilitated roundtables for small groups). ${
     fit ? "Your work is close to what we study. " : ""
@@ -968,7 +987,7 @@ const slopIn = (draft) => [...new Set(SLOP.filter((re) => re.test(Object.values(
 // Built on YC's six-part cold email (subject, opener, what they get, proof, ask, sign-off). The whole email is about the reader.
 // YC's rule: the email is about the reader. Flags a body where the sender talks about themselves as much as about the reader.
 function aboutThem(body = "", c, s) {
-  const text = body.split(/\n\s*\n/).slice(0, -1).join(" ").toLowerCase(); // leave out the sign-off
+  const text = body.split(/\n\s*\n/).join(" ").toLowerCase(); // drafts carry no sign-off when this runs
   const words = (re) => (text.match(re) || []).length;
   const esc = (x) => x.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const names = (list) => list.filter((x) => x && x.length > 2).map(esc).join("|");
@@ -989,7 +1008,7 @@ const DRAFT_SYSTEM = [
   "3. What they get: ONE plain sentence, framed as what this reader or their people get, short enough to repeat to someone else. Say what they get, not what the sender is. Not 'thebridge makes roundtable: up to six people with an AI co-host' (that describes the sender) but, for a community lead, 'your members get a focused small-group conversation, with an AI co-host that turns it into next steps'. Never paste or paraphrase the whole pitch; never name more than one product.",
   "4. Proof: if proof_points are supplied, one sentence with the single point this reader would care most about, ideally tied to their problem. If none are supplied, write no proof sentence at all and never imply traction ('three companies close to what we're building' is vague traction-talk: don't).",
   "5. The ask: alone on its own line, one small specific next step phrased as a question, easy to say yes to. Prefer offering them something useful and concrete over asking for their time (for example 'Want me to run a free roundtable for five of your members?' beats 'Open to 20 minutes?'). Keep to the intent of the_ask; for an investor a short call can be right, but tie it to them. No menu of options. If booking_link is supplied, put it on its own line straight after the ask, introduced in a few plain words.",
-  "6. Sign-off: on a cold message (no warm path), the sender's first name on one line, then their title and company and one link on the next line, for example 'Adnan' then 'Founder, thebridge · thebridge.ai'. With a warm path, the first name alone is enough. Never a closing phrase like Best or Cheers, never a quote, never more than one link.",
+  "6. Sign-off: write NONE. End email_body right after the ask (or the booking link). The sender's own signature is added automatically afterwards. No name, no closing phrase like Best or Cheers.",
   "",
   "Style:",
   "- If how_the_sender_writes is supplied, those are real messages by the sender: match their tone, sentence length, greeting and sign-off habits. Never copy their sentences or facts.",
@@ -999,7 +1018,7 @@ const DRAFT_SYSTEM = [
   "- Never use: I hope this finds you well, reaching out, I wanted to, my name is, excited, thrilled, passionate, leverage, synergy, seamless, unlock, innovative, cutting-edge, game-changer, journey, perfect fit, pick your brain, circle back, touch base, what we're building, I'd value your read. No em dashes, no exclamation marks.",
   "- The LinkedIn note and message follow the same rules: about them first, one line on what they get, one small ask.",
   "",
-  "Lengths: email_body 50 to 110 words including greeting and sign-off. li_note at most 280 characters, no sign-off. li_message under 70 words, for after they accept the connection.",
+  "Lengths: email_body 40 to 95 words including the greeting. li_note at most 280 characters, no sign-off. li_message under 70 words, for after they accept the connection.",
   "Return only a JSON object with the string keys email_subject, email_body, li_note, li_message.",
 ].join("\n");
 
@@ -1107,16 +1126,17 @@ async function aiDraft(c, s, instruction = "") {
     ]);
     try { draft = parseDraft(second); } catch { /* keep the first draft if the rewrite came back malformed */ }
   }
+  draft.email_body = withSignature(draft.email_body, s);
   return draft;
 }
 
 const FOLLOWUP_SYSTEM = [
   "You write a follow-up to a first-touch email that got no reply, as the same founder, in the same voice: short, specific, clearly typed by a person.",
-  "- Shorter than the first email: 30 to 70 words including greeting and sign-off.",
+  "- Shorter than the first email: 25 to 60 words including the greeting.",
   "- Open with one light line that brings the first email back up without guilt. Vary it. Never: just following up, just checking in, bumping this, circling back, any chance you saw.",
   "- Then exactly ONE new thing the first email did not say. Good new things: a concrete picture of what one roundtable would look like for their firm, members or event; a specific idea tied to why they fit; the proof point, if one is supplied and was not used. Never repeat the pitch and never invent facts.",
   "- Then the ask again, made even smaller, alone on its own line as a question.",
-  "- Sign off with the sender's first name only.",
+  "- Write no sign-off and no name at the end; the sender's signature is added automatically.",
   "- If this is the last follow-up, end gracefully: make it easy to say not now, and leave the door open.",
   "- No em dashes, no exclamation marks, no buzzwords.",
   "Return only a JSON object with the string key followup_body.",
@@ -1128,8 +1148,8 @@ async function followupFor(c, n) {
   if (!aiEnabled) {
     const first = (c.name || "").split(" ")[0] || "there";
     const body = n >= MAX_FOLLOWUPS
-      ? `Hi ${first}, last note from me on this. If now isn't the right time, no problem at all, and I'm happy to pick it up later.\n\n${askFor(s, c.kind)} Still open to it?\n\n${s.founder_name || "[your name]"}`
-      : `Hi ${first}, bringing this back up in case it got buried.\n\n${askFor(s, c.kind)} Would that work?\n\n${s.founder_name || "[your name]"}`;
+      ? `Hi ${first}, last note from me on this. If now isn't the right time, no problem at all, and I'm happy to pick it up later.\n\n${askFor(s, c.kind)} Still open to it?\n\n${signatureFor(s)}`
+      : `Hi ${first}, bringing this back up in case it got buried.\n\n${askFor(s, c.kind)} Would that work?\n\n${signatureFor(s)}`;
     return { followup_subject: subject, followup_body: body, source: "template" };
   }
   const facts = {
@@ -1156,7 +1176,7 @@ async function followupFor(c, n) {
         { role: "user", content: `This reads as templated because it contains: ${found.join(", ")}. Rewrite without those. Return only the JSON object.` }]));
     } catch { /* keep the first version */ }
   }
-  return { followup_subject: subject, followup_body: body, source: "ai" };
+  return { followup_subject: subject, followup_body: withSignature(body, s), source: "ai" };
 }
 
 // ---------- block list ----------
@@ -1421,6 +1441,19 @@ async function api(req, res, url) {
   if (method === "GET" && parts[1] === "export.csv") {
     res.writeHead(200, { "Content-Type": "text/csv", "Content-Disposition": 'attachment; filename="outreach.csv"' });
     return res.end(exportCsv());
+  }
+  // Puts the current signature on every draft that has not been sent yet.
+  if (method === "POST" && parts[1] === "settings" && parts[2] === "apply-signature") {
+    const s = getSettings();
+    let changed = 0;
+    for (const c of db.prepare("SELECT id, stage, email_body, followup_body FROM contacts WHERE stage IN ('Research', 'Ready', 'Contacted')").all()) {
+      const patch = {};
+      if (c.email_body && c.stage !== "Contacted") patch.email_body = withSignature(c.email_body, s);
+      if (c.followup_body) patch.followup_body = withSignature(c.followup_body, s);
+      for (const k of Object.keys(patch)) if (patch[k] === c[k]) delete patch[k];
+      if (Object.keys(patch).length) { updateContact(c.id, patch); changed++; }
+    }
+    return send(res, 200, { changed, ...state() });
   }
   if (method === "PUT" && parts[1] === "settings") {
     const body = await readJson(req);

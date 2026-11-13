@@ -343,11 +343,11 @@ export function Record({ id, tab: initialTab = "outreach", onClose, onExpand }) 
   return (
     <Drawer isOpen onOpenChange={(o) => !o && onClose()} label={title(c)} side="end" width={560} hasScrim={false} padding={0}>
       <DrawerHeader
-        title={title(c)}
-        subtitle={person(c) || c.kind}
+        title={<span className="drawer-line" title={title(c)}>{title(c)}</span>}
+        subtitle={<span className="drawer-line" title={person(c) || c.kind}>{person(c) || c.kind}</span>}
         onOpenChange={(o) => !o && onClose()}
         startContent={<Lead c={c} />}
-        endContent={<Button size="sm" variant="ghost" icon={<Maximize2 size={14} />} label="Open full page" clickAction={() => onExpand(tab)} />}
+        endContent={<Button size="sm" variant="ghost" icon={<Maximize2 size={14} />} label="Open full page" isIconOnly tooltip="Open full page" clickAction={() => onExpand(tab)} />}
         hasDivider={false}
       />
       <Meta c={c} tab={tab} setTab={setTab} />

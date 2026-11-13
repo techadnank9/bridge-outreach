@@ -61,7 +61,9 @@ body { font-family: var(--font-family-body, "Figtree", system-ui, sans-serif); }
 .sub-link { font-size: 12px; color: var(--color-text-secondary); }
 .why-list { margin: 0; padding: 0; list-style: none; } .why-list li { padding: 2px 0; } .why-list li::before { content: "+"; color: #ff8a5c; font-weight: 700; margin-inline-end: 8px; }
 .steps { margin: 0; padding-inline-start: 20px; line-height: 1.7; color: var(--color-text-secondary); }
-.drawer-meta { padding: 0 20px; display: grid; gap: 12px; }
+.drawer-meta { padding: 10px 20px 0; display: grid; gap: 12px; }
+/* Panel title and subtitle stay on one line each; the full text shows on hover */
+.drawer-line { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
 .drawer-body { padding: 16px 20px 40px; overflow: auto; }
 .log-row { padding: 6px 0; border-bottom: 1px solid var(--color-border-default, rgba(255,255,255,.06)); }
 
@@ -101,3 +103,24 @@ body { font-family: var(--font-family-body, "Figtree", system-ui, sans-serif); }
 .person-email { color: #9db8ff; font-size: 14px; text-decoration: none; word-break: break-all; }
 .person-email:hover { text-decoration: underline; }
 .person-role { display: block; }
+
+/* Phones: the bottom action bar wraps, text on its own line, buttons share the row */
+@media (max-width: 560px) {
+  .actionbar { flex-wrap: wrap; gap: 8px; }
+  .actionbar > * { flex-wrap: wrap; }
+  .actionbar > :last-child { width: 100%; }
+  .actionbar > :last-child > * { flex: 1; }
+  .how-many__slider { min-width: 100%; }
+  .person-facts { grid-template-columns: 76px 1fr; }
+  .record-page { padding: 12px 14px 64px; }
+}
+
+/* Phones: lead panels take the whole screen instead of leaving a sliver of the page */
+@media (max-width: 560px) {
+  dialog.astryx-drawer { --x-fqzwsx: 100dvw !important; width: 100dvw !important; max-width: 100dvw !important; inset-inline-start: 0 !important; }
+  .drawer-meta, .drawer-body { padding-left: 14px; padding-right: 14px; }
+}
+
+/* Lead panel header: breathing room from the panel's edges (the panel itself has no padding) */
+dialog.astryx-drawer .astryx-drawer-header { padding: 18px 16px 6px 22px; }
+@media (max-width: 560px) { dialog.astryx-drawer .astryx-drawer-header { padding: 14px 12px 4px 16px; } }
