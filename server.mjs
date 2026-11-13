@@ -1,5 +1,5 @@
 // Bridge Outreach: a small local app for tracking investors, partners and
-// conferences, and drafting the email and LinkedIn message for each one.
+// conferences and communities, and drafting the email and LinkedIn message for each one.
 // Nothing is ever sent from here. The founder sends every message themself.
 
 import http from "node:http";
@@ -53,7 +53,7 @@ const leadsEnabled = Boolean(GLASSER_BIN) && (!HOSTED || Boolean(process.env.GLA
 const PRICE_PER_FIRM = 0.06;     // Fundable investor search, per firm returned
 const PRICE_PER_LOOKUP = 0.0245; // Prospeo people search (per call) and email unlock (per person found)
 
-const KINDS = ["investor", "partner", "conference"];
+const KINDS = ["investor", "partner", "conference", "community"];
 const STAGES = ["Research", "Ready", "Contacted", "Replied", "Meeting", "Passed"];
 const FIELDS = [
   "kind", "org", "name", "role", "email", "linkedin", "website", "fit", "warm_path",
@@ -170,6 +170,7 @@ const DEFAULT_SETTINGS = {
   investor_ask: "A 20 minute conversation, or a seat at a small roundtable we are hosting on how AI changes group decisions.",
   partner_ask: "A short call to explore running a pilot roundtable with your team or community.",
   conference_ask: "A speaking slot or a hosted roundtable session at your event.",
+  community_ask: "A free roundtable session for a few of your members, so they can try it and tell us what works.",
   proof: "",
   link: "https://thebridge.ai",
   followup_days: "5",
@@ -498,7 +499,7 @@ async function findInvestors({ query, count, earlyOnly }) {
   return { rows, charge, warning };
 }
 
-// Partners and conferences: people with a given role at organisations described by keywords.
+// Partners, conferences and communities: people with a given role at organisations described by keywords.
 async function findPeople({ kind, keywords, titles }) {
   const search = await lookup("prospeo", "/search-person", {
     page: 1,
@@ -546,7 +547,7 @@ async function leadRoutes(req, res, parts) {
     const keywords = splitList(body.keywords, 8);
     const titles = splitList(body.titles, 8);
     if (!keywords.length || !titles.length) return send(res, 400, { error: "Add at least one keyword and one role." });
-    const kind = body.kind === "conference" ? "conference" : "partner";
+    const kind = ["conference", "community"].includes(body.kind) ? body.kind : "partner";
     const result = await findPeople({ kind, keywords, titles });
     if (result.rows?.length) {
       saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", ") });
@@ -662,7 +663,7 @@ function exportCsv() {
 // ---------- drafting ----------
 
 const askFor = (s, kind) =>
-  kind === "partner" ? s.partner_ask : kind === "conference" ? s.conference_ask : s.investor_ask;
+  kind === "partner" ? s.partner_ask : kind === "conference" ? s.conference_ask : kind === "community" ? s.community_ask : s.investor_ask;
 
 function templateDraft(c, s) {
   const first = (c.name || "").split(" ")[0] || "there";
@@ -672,11 +673,13 @@ function templateDraft(c, s) {
     c.warm_path ? `${c.warm_path.replace(/\.$/, "")} suggested I reach out.`
     : fit ? `Why I'm writing to you in particular: ${fit}.`
     : c.kind === "conference" ? `I've been following ${c.org || "your event"} and would like to contribute.`
+    : c.kind === "community" ? `I've been following what ${c.org || "your community"} does for its members.`
     : `I've been following ${c.org || "your work"} and think there is a fit.`;
   const ask = askFor(s, c.kind);
   const subject =
     c.kind === "investor" ? `${s.company}: how groups think together with AI`
     : c.kind === "partner" ? `${s.company} x ${c.org || "you"}: a pilot roundtable`
+    : c.kind === "community" ? `A roundtable for ${c.org || "your members"}`
     : `Session idea for ${c.org || "your event"}: AI-facilitated roundtables`;
   const body = [
     `Hi ${first},`,
@@ -721,7 +724,7 @@ const slopIn = (draft) => [...new Set(SLOP.filter((re) => re.test(Object.values(
 
 const DRAFT_SYSTEM = [
   "You write first-touch outreach as the founder, in first person, the way a busy founder actually writes to someone they respect: short, specific, a little informal, clearly typed by a person.",
-  "The reader is an investor, partner or event organiser who deletes anything that smells like a template. The test of a good message: it could only have been sent to this one person, and replying takes them ten seconds.",
+  "The reader is an investor, partner, event organiser or community leader who deletes anything that smells like a template. The test of a good message: it could only have been sent to this one person, and replying takes them ten seconds.",
   "",
   "How to write it:",
   "- Open with the specific reason you are writing to them: the warm path if there is one, otherwise the concrete thing in why_they_fit. Never open with who you are, a pleasantry, or a compliment.",
@@ -897,7 +900,7 @@ function loginPage(message = "") {
   input:focus, button:focus-visible { outline: 2px solid #2f5d50; outline-offset: 1px; }
   button { width: 100%; margin-top: 14px; min-height: 46px; font: inherit; font-weight: 600; color: #fff; background: #2f5d50; border: 0; border-radius: 8px; cursor: pointer; }
   .error { color: #a23b2e; font-size: 14px; margin: 8px 0 0; } code { font-size: 13px; }
-</style></head><body><main><h1>Bridge Outreach</h1><p class="sub">Investors, partners, conferences</p>${body}</main></body></html>`;
+</style></head><body><main><h1>Bridge Outreach</h1><p class="sub">Investors, partners, conferences, communities</p>${body}</main></body></html>`;
 }
 
 async function loginRoutes(req, res, url) {

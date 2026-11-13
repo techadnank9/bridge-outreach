@@ -14,7 +14,7 @@
     --bg: #1B1F27; --panel: #222731; --raise: #282E3A; --ink: #E7EAF0; --muted: #8B93A3; --line: #2E3440; --line2: #3A4150;
     --accent: #E7EAF0; --accent-ink: #1B1F27; --soft: #2A3140; --warn: #F2B45A; --warn-bg: #3a2f1c;
     --danger: #FF7A6B; --radius: 8px;
-    --inv: #7EA6FF; --inv-bg: #233154; --par: #C49BFF; --par-bg: #33264b; --con: #F2B45A; --con-bg: #3d2f1b;
+    --inv: #7EA6FF; --inv-bg: #233154; --par: #C49BFF; --par-bg: #33264b; --con: #F2B45A; --con-bg: #3d2f1b; --com: #5FD0C5; --com-bg: #1d3a39;
     --hot: #FF8A5C; --good: #6FD3A0; --good-bg: #1f3a30;
   }
   * { box-sizing: border-box; }
@@ -75,6 +75,7 @@
   .pill.investor { background: var(--inv-bg); color: var(--inv); }
   .pill.partner { background: var(--par-bg); color: var(--par); }
   .pill.conference { background: var(--con-bg); color: var(--con); }
+  .pill.community { background: var(--com-bg); color: var(--com); }
   /* Score reads as a grade with a heat word, like a ledger entry. */
   .score { display: inline-flex; gap: 6px; align-items: baseline; padding: 1px 8px; border: 1px solid var(--line); border-radius: 6px; font-weight: 600; font-size: 13px; cursor: help; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .score i { font-style: normal; font-weight: 500; font-size: 12px; }
@@ -144,7 +145,7 @@
   @media (max-width: 760px) {
     body { font-size: 15px; }
     .app { display: block; }
-    nav { position: fixed; left: 0; right: 0; top: auto; bottom: 0; height: auto; z-index: 9; display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
+    nav { position: fixed; left: 0; right: 0; top: auto; bottom: 0; height: auto; z-index: 9; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(64px, 1fr); overflow-x: auto; gap: 2px;
       padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); }
     nav h1, nav p, nav .mode, nav .long { display: none; }
     nav .short { display: inline; }
@@ -251,7 +252,7 @@ function renderNav() {
   ];
   $("#nav").innerHTML = `
     <h1>Bridge Outreach</h1>
-    <p>Investors, partners, conferences</p>
+    <p>Investors, partners, conferences, communities</p>
     ${items.map(([id, label, short, n, isNew]) => `<button data-view="${id}" class="${view === id ? "on" : ""}" ${view === id ? 'aria-current="page"' : ""}><span><span class="long">${label}</span><span class="short">${short}</span>${isNew ? `<span class="new">new</span>` : ""}</span><span class="count">${n || ""}</span></button>`).join("")}
     <div class="mode">Drafts: ${S.ai ? `written by ${esc(S.aiModel)}` : "template (add an API key for AI)"}<br>Gmail: ${S.gmail.connected ? "connected" : "not connected"}</div>`;
   $("#nav").querySelectorAll("button").forEach((b) => (b.onclick = () => { view = b.dataset.view; notice = ""; if (open) { open = null; $("#overlay").innerHTML = ""; document.body.classList.remove("docked"); } render(); }));
@@ -294,7 +295,7 @@ function renderPipeline() {
       ${S.stages.map((s) => `<button class="stage ${filter.stage === s ? "on" : ""}" data-stage="${s}"><b>${pool.filter((c) => c.stage === s).length}</b><span>${s}</span></button>`).join("")}
     </div>
     <div class="bar">
-      <div class="tabs">${["all", ...S.kinds].map((k) => `<button data-kind="${k}" class="${filter.kind === k ? "on" : ""}">${k === "all" ? "All" : k[0].toUpperCase() + k.slice(1) + "s"}</button>`).join("")}</div>
+      <div class="tabs">${["all", ...S.kinds].map((k) => `<button data-kind="${k}" class="${filter.kind === k ? "on" : ""}">${{ all: "All", investor: "Investors", partner: "Partners", conference: "Conferences", community: "Communities" }[k] || k}</button>`).join("")}</div>
       <input type="search" id="q" placeholder="Search" aria-label="Search contacts" value="${esc(filter.q)}">
       <span class="grow"></span>
       ${S.gmail.connected ? `<button class="btn" id="sync">Check Gmail</button>` : ""}
@@ -341,6 +342,7 @@ let find = {
   investor: { query: "AI meeting facilitation, group collaboration and collective intelligence software", count: 5, early: true },
   partner: { keywords: "community platform, leadership development, facilitation", titles: "Partnerships, Community, Head of People" },
   conference: { keywords: "conference, summit, events", titles: "Program Director, Head of Events, Organizer" },
+  community: { keywords: "community, nonprofit, NGO, association, network, foundation, membership", titles: "Founder, Executive Director, Head of Community, Community Manager, Organizer, President" },
 };
 const money = (n) => "$" + Number(n).toFixed(2);
 
@@ -377,7 +379,7 @@ function renderFind() {
   if (find.loaded !== find.tab) loadSavedResults();
   const t = find.tab, p = S.leads;
   const cost = t === "investor" ? find.investor.count * p.pricePerFirm + p.pricePerLookup : p.pricePerLookup;
-  const label = { investor: "investors", partner: "partners", conference: "conference contacts" }[t];
+  const label = { investor: "investors", partner: "partners", conference: "conference contacts", community: "community leaders" }[t];
   const form = t === "investor" ? `
       <div class="field"><label for="fq">What does your company do?</label>
         <textarea id="fq" style="min-height:64px">${esc(find.investor.query)}</textarea>
@@ -387,7 +389,7 @@ function renderFind() {
           <select id="fcount">${[5, 10, 20].map((n) => `<option ${find.investor.count === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
         <div style="align-self:end"><label class="checkline"><input type="checkbox" id="fearly" ${find.investor.early ? "checked" : ""}> Early-stage rounds only</label></div>
       </div>` : `
-      <div class="field"><label for="fkeywords">${t === "partner" ? "Kind of organisation" : "Kind of event"}</label>
+      <div class="field"><label for="fkeywords">${t === "partner" ? "Kind of organisation" : t === "community" ? "Kind of community" : "Kind of event"}</label>
         <input type="text" id="fkeywords" value="${esc(find[t].keywords)}">
         <p class="hint">Keywords, separated by commas.</p></div>
       <div class="field"><label for="ftitles">Roles to reach</label>
@@ -397,7 +399,7 @@ function renderFind() {
   $("#main").innerHTML = `
     <h2>Find leads</h2>
     <p class="sub">Search for people to reach, with their role and LinkedIn profile. Each search shows its price before it runs.${find.balance !== null ? ` Balance: ${money(find.balance)}.` : ""}</p>
-    <div class="bar"><div class="tabs">${[["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"]].map(([id, name]) => `<button data-find="${id}" class="${t === id ? "on" : ""}">${name}</button>`).join("")}</div></div>
+    <div class="bar"><div class="tabs">${[["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"], ["community", "Communities"]].map(([id, name]) => `<button data-find="${id}" class="${t === id ? "on" : ""}">${name}</button>`).join("")}</div></div>
     ${find.note ? `<div class="notice">${esc(find.note)}</div>` : ""}
     <div class="card">
       ${form}
@@ -525,7 +527,7 @@ function renderAllLeads() {
     <p class="sub">Every lead your searches have found, kept in one place. Nothing is charged again to see them.</p>
     <div class="bar">
       <div class="tabs">${[["new", "New"], ["pipeline", "In pipeline"], ["all", "All"]].map(([id, name]) => `<button data-lstatus="${id}" class="${leadsView.status === id ? "on" : ""}">${name} · ${counts[id]}</button>`).join("")}</div>
-      <div class="tabs">${[["all", "All types"], ["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"]].map(([id, name]) => `<button data-lkind="${id}" class="${leadsView.kind === id ? "on" : ""}">${name}</button>`).join("")}</div>
+      <div class="tabs">${[["all", "All types"], ["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"], ["community", "Communities"]].map(([id, name]) => `<button data-lkind="${id}" class="${leadsView.kind === id ? "on" : ""}">${name}</button>`).join("")}</div>
       <select id="lcat" aria-label="Category"><option value="all">All categories</option>${CATEGORIES.map((c) => `<option ${leadsView.category === c ? "selected" : ""}>${c}</option>`).join("")}</select>
       <input type="search" id="lq" placeholder="Search leads" value="${esc(leadsView.q)}" aria-label="Search leads">
     </div>
@@ -687,6 +689,7 @@ function renderSettings() {
       ${field("investor_ask", "From investors", "", true)}
       ${field("partner_ask", "From partners", "", true)}
       ${field("conference_ask", "From conferences", "", true)}
+      ${field("community_ask", "From communities", "", true)}
       <div><label for="s_followup_days">Follow up after this many days</label><input type="number" min="1" id="s_followup_days" value="${esc(s.followup_days)}"></div>
     </div></div>
     <div class="row" style="margin-top:0"><button class="btn primary" id="save">Save</button>${S.auth ? `<span class="spacer"></span><a class="btn" href="/logout">Sign out</a>` : ""}</div>
