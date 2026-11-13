@@ -25,8 +25,10 @@ const DATA_DIR = process.env.DATA_DIR || here;
 // One shared password protects the whole app. Hosted without one, the app stays locked.
 const APP_PASSWORD = process.env.APP_PASSWORD || "";
 const authRequired = HOSTED || Boolean(APP_PASSWORD);
-const MODEL = process.env.DRAFT_MODEL || "claude-opus-5-5";
-const aiEnabled = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+// Drafts use the strongest writer available: Claude when an Anthropic key is set, otherwise OpenAI.
+const AI_PROVIDER = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "anthropic" : process.env.OPENAI_API_KEY ? "openai" : "";
+const MODEL = process.env.DRAFT_MODEL || (AI_PROVIDER === "openai" ? "gpt-6-astra" : "claude-fable-5-2");
+const aiEnabled = Boolean(AI_PROVIDER);
 
 // Gmail is optional. It needs an OAuth client the founder creates in Google Cloud.
 const GOOGLE_ID = process.env.GOOGLE_CLIENT_ID || "";
@@ -706,17 +708,90 @@ function templateDraft(c, s) {
   return { email_subject: subject, email_body: body, li_note: note, li_message: message };
 }
 
-async function aiDraft(c, s) {
+// Phrases that make outreach read as templated or machine-written. A draft containing any is rewritten once.
+const SLOP = [
+  /hope (this|you're|you are|all is)/i, /reach(ing)? out/i, /\bleverag/i, /\bdelve/i, /\bexcited\b/i, /game[- ]chang/i,
+  /\bsynerg/i, /\bseamless/i, /\bunlock/i, /revolutioni[sz]/i, /\bcame across\b/i, /\bquick question\b/i,
+  /intersection of/i, /\bempower/i, /\bcutting[- ]edge\b/i, /\binnovative\b/i, /\bpassionate\b/i, /\bthrilled\b/i,
+  /\bin today's\b/i, /\btouch base\b/i, /\bcircle back\b/i, /\bgroundbreaking\b/i, /\btransformative\b/i,
+  /\bjourney\b/i, /\bi wanted to\b/i, /\bmy name is\b/i, /\bperfect fit\b/i, /\blove to connect\b/i, /\bpick your brain\b/i,
+  /—/, /!/,
+];
+const slopIn = (draft) => [...new Set(SLOP.filter((re) => re.test(Object.values(draft).join(" "))).map((re) => (re.source === "—" ? "em dash" : re.source === "!" ? "exclamation mark" : re.source.replace(/\\b|\\s\?|\(\?:|\)|\\|\[|\]|\?|-/g, " ").replace(/\s+/g, " ").trim())))];
+
+const DRAFT_SYSTEM = [
+  "You write first-touch outreach as the founder, in first person, the way a busy founder actually writes to someone they respect: short, specific, a little informal, clearly typed by a person.",
+  "The reader is an investor, partner or event organiser who deletes anything that smells like a template. The test of a good message: it could only have been sent to this one person, and replying takes them ten seconds.",
+  "",
+  "How to write it:",
+  "- Open with the specific reason you are writing to them: the warm path if there is one, otherwise the concrete thing in why_they_fit. Never open with who you are, a pleasantry, or a compliment.",
+  "- Then one or two plain sentences on what thebridge does, said the way you would say it out loud, tied to why it matters to them.",
+  "- End with one small, specific ask phrased as a question. No menu of options.",
+  "- Use contractions. Mix short and medium sentences. No lists, no bold, no headings, no buzzwords.",
+  "- Sign off with the sender's first name only, on its own line, with no closing phrase like Best or Cheers before it.",
+  "- Use only the facts supplied. Never invent traction, numbers, mutual connections, or anything about the recipient. If a fact is missing, write around it.",
+  "- Never use: I hope this finds you well, reaching out, I wanted to, my name is, excited, thrilled, passionate, leverage, synergy, seamless, unlock, innovative, cutting-edge, game-changer, journey, perfect fit, pick your brain, circle back, touch base. No em dashes, no exclamation marks.",
+  "",
+  "Lengths: email_subject 2 to 6 words, lowercase is fine, never clickbait. email_body 50 to 110 words including greeting and sign-off. li_note at most 280 characters, no sign-off. li_message under 70 words, for after they accept the connection.",
+  "Return only a JSON object with the string keys email_subject, email_body, li_note, li_message.",
+].join("\n");
+
+function parseDraft(text) {
+  const start = text.indexOf("{"), end = text.lastIndexOf("}");
+  if (start < 0 || end < 0) throw new Error("The model did not return a draft in the expected format.");
+  const parsed = JSON.parse(text.slice(start, end + 1));
+  const out = {};
+  for (const key of ["email_subject", "email_body", "li_note", "li_message"]) {
+    if (typeof parsed[key] !== "string" || !parsed[key].trim()) throw new Error(`The draft is missing ${key}.`);
+    out[key] = parsed[key].trim();
+  }
+  return out;
+}
+
+async function claudeText(model, messages) {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic();
-  const system = [
-    "You write first-touch outreach for a startup founder. You write as the founder, in first person.",
-    "The reader is a busy investor, partner or conference organiser who gets many such messages, so each one must be short, specific to them, and end in one concrete ask.",
-    "Use only the facts supplied. Never invent traction, numbers, mutual connections, or details about the recipient. If a fact is missing, write around it.",
-    "Plain, warm, direct English. No hype words, no flattery, no exclamation marks, no em dashes.",
-    "If a warm path is given, lead with it. Otherwise lead with the reason this person is a fit.",
-    "Return only a JSON object with these string keys: email_subject (under 9 words), email_body (under 130 words, with greeting and sign-off), li_note (a LinkedIn connection note, at most 280 characters), li_message (a LinkedIn message for after they accept, under 80 words).",
-  ].join("\n");
+  const response = await client.beta.messages.create({
+    model,
+    max_tokens: 16000,
+    output_config: { effort: "high" },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    system: DRAFT_SYSTEM,
+    messages,
+  });
+  if (response.stop_reason === "refusal") throw new Error("The model declined to write this draft.");
+  return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+}
+
+async function openaiText(model, messages) {
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      instructions: DRAFT_SYSTEM,
+      input: messages.map((m) => ({ role: m.role, content: m.content })),
+      reasoning: { effort: "high" },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || `OpenAI returned ${res.status}`);
+  return data.output_text ?? (data.output || []).flatMap((o) => o.content || []).filter((p) => p.type === "output_text").map((p) => p.text).join("");
+}
+
+async function writeWith(messages) {
+  if (AI_PROVIDER === "openai") return openaiText(MODEL, messages);
+  try {
+    return await claudeText(MODEL, messages);
+  } catch (error) {
+    // An account without access to the top model still gets drafts from Opus.
+    if (MODEL === "claude-fable-5-2" && (error.status === 404 || error.status === 403)) return claudeText("claude-opus-5-5", messages);
+    throw error;
+  }
+}
+
+async function aiDraft(c, s, instruction = "") {
   const facts = {
     sender: {
       name: s.founder_name || "[your name]",
@@ -737,32 +812,31 @@ async function aiDraft(c, s) {
     },
     the_ask: askFor(s, c.kind),
   };
-  const response = await client.beta.messages.create({
-    model: MODEL,
-    max_tokens: 16000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    system,
-    messages: [{ role: "user", content: `Write the outreach for this recipient.\n\n${JSON.stringify(facts, null, 2)}` }],
-  });
-  if (response.stop_reason === "refusal") throw new Error("The model declined to write this draft.");
-  const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  const start = text.indexOf("{"), end = text.lastIndexOf("}");
-  if (start < 0 || end < 0) throw new Error("The model did not return a draft in the expected format.");
-  const parsed = JSON.parse(text.slice(start, end + 1));
-  const out = {};
-  for (const key of ["email_subject", "email_body", "li_note", "li_message"]) {
-    if (typeof parsed[key] !== "string" || !parsed[key].trim()) throw new Error(`The draft is missing ${key}.`);
-    out[key] = parsed[key].trim();
+  let ask = `Write the outreach for this recipient.\n\n${JSON.stringify(facts, null, 2)}`;
+  if (instruction && c.email_body) {
+    ask += `\n\nThe current draft is below. Rewrite it: ${instruction}\n\n${JSON.stringify({ email_subject: c.email_subject, email_body: c.email_body, li_note: c.li_note, li_message: c.li_message }, null, 2)}`;
   }
-  return out;
+  const messages = [{ role: "user", content: ask }];
+  const first = await writeWith(messages);
+  let draft = parseDraft(first);
+  const found = slopIn(draft);
+  if (found.length) {
+    // One rewrite pass that names exactly what sounded machine-written.
+    const second = await writeWith([
+      ...messages,
+      { role: "assistant", content: first },
+      { role: "user", content: `This reads as templated because it contains: ${found.join(", ")}. Rewrite all four fields without those, keeping every other rule. Return only the JSON object.` },
+    ]);
+    try { draft = parseDraft(second); } catch { /* keep the first draft if the rewrite came back malformed */ }
+  }
+  return draft;
 }
 
-async function draftFor(contact) {
+async function draftFor(contact, instruction = "") {
   const settings = getSettings();
   if (!aiEnabled) return { draft: templateDraft(contact, settings), source: "template" };
   try {
-    return { draft: await aiDraft(contact, settings), source: "ai" };
+    return { draft: await aiDraft(contact, settings, instruction), source: "ai" };
   } catch (error) {
     return { draft: templateDraft(contact, settings), source: "template", warning: `AI draft failed (${error.message}). Used the template instead.` };
   }
@@ -875,6 +949,7 @@ function state() {
     activity: db.prepare("SELECT * FROM activity ORDER BY at DESC LIMIT 500").all(),
     settings: getSettings(),
     ai: aiEnabled,
+    aiModel: aiEnabled ? MODEL : "",
     auth: authRequired,
     leads: { enabled: leadsEnabled, pricePerFirm: PRICE_PER_FIRM, pricePerLookup: PRICE_PER_LOOKUP },
     leadResults: leadResults(),
@@ -952,7 +1027,9 @@ async function api(req, res, url) {
       return send(res, 200, state());
     }
     if (method === "POST" && parts[3] === "draft") {
-      const { draft, source, warning } = await draftFor(contact);
+      const body = await readJson(req);
+      const instruction = { warmer: "make it warmer and more personal, same length.", shorter: "make every field noticeably shorter.", plainer: "make it plainer and more direct, like a quick note between peers." }[body.style] || "";
+      const { draft, source, warning } = await draftFor(contact, instruction);
       updateContact(id, draft);
       return send(res, 200, { source, warning, ...state() });
     }

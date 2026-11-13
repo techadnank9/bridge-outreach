@@ -4,22 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bridge Outreach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* Night desk: slate, not black; the three lead types carry the colour. */
   :root {
-    --bg: #f6f5f1; --panel: #ffffff; --ink: #1c1b18; --muted: #6f6b62; --line: #e4e1d8;
-    --accent: #2f5d50; --accent-ink: #ffffff; --soft: #eef3f0; --warn: #9a5b13; --warn-bg: #fbf1df;
-    --danger: #a23b2e; --radius: 10px;
+    color-scheme: dark;
+    --bg: #1B1F27; --panel: #222731; --raise: #282E3A; --ink: #E7EAF0; --muted: #8B93A3; --line: #2E3440; --line2: #3A4150;
+    --accent: #E7EAF0; --accent-ink: #1B1F27; --soft: #2A3140; --warn: #F2B45A; --warn-bg: #3a2f1c;
+    --danger: #FF7A6B; --radius: 8px;
+    --inv: #7EA6FF; --inv-bg: #233154; --par: #C49BFF; --par-bg: #33264b; --con: #F2B45A; --con-bg: #3d2f1b;
+    --hot: #FF8A5C; --good: #6FD3A0; --good-bg: #1f3a30;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; color: var(--ink); background: var(--bg); }
+  body { margin: 0; font: 13.5px/1.5 "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
   button, input, select, textarea { font: inherit; color: inherit; }
   .app { display: grid; grid-template-columns: 210px 1fr; min-height: 100vh; }
-  nav { background: var(--panel); border-right: 1px solid var(--line); padding: 20px 14px; position: sticky; top: 0; height: 100vh; }
+  body.docked .app { grid-template-columns: 210px 1fr 420px; }
+  nav { background: var(--bg); border-right: 1px solid var(--line); padding: 20px 14px; position: sticky; top: 0; height: 100vh; }
   nav h1 { font-size: 15px; margin: 0 8px 4px; letter-spacing: -0.01em; }
   nav p { margin: 0 8px 18px; color: var(--muted); font-size: 12px; }
   nav button { display: flex; justify-content: space-between; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-  nav button:hover { background: var(--bg); }
-  nav button.on { background: var(--soft); color: var(--accent); font-weight: 600; }
+  nav button { color: var(--muted); }
+  nav button:hover { background: var(--panel); color: var(--ink); }
+  nav button.on { background: var(--panel); color: var(--ink); font-weight: 500; }
+  nav .new { font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 99px; background: #2c3a5c; color: #a9c1ff; margin-left: 6px; }
   nav .count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
   nav .mode { position: absolute; bottom: 18px; left: 22px; right: 14px; font-size: 12px; color: var(--muted); }
   main { padding: 26px 30px 60px; min-width: 0; }
@@ -35,44 +45,47 @@
   .bar input[type=search] { width: 240px; }
   .bar select { width: auto; }
   .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; text-decoration: none; color: inherit; display: inline-block; }
-  .btn:hover { border-color: #cfcabd; }
+  .btn:hover { border-color: var(--line2); background: var(--raise); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.primary:hover { filter: brightness(0.92); background: var(--accent); }
   .btn.small { padding: 4px 9px; font-size: 13px; }
   .btn.danger { color: var(--danger); }
   .btn:disabled { opacity: 0.55; cursor: default; }
   .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tabs button { border: 0; background: none; padding: 7px 12px; cursor: pointer; }
-  .tabs button.on { background: var(--soft); color: var(--accent); font-weight: 600; }
+  .tabs button { color: var(--muted); }
+  .tabs button.on { background: var(--soft); color: var(--ink); font-weight: 500; }
   .stages { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
   .stage { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; text-align: left; }
-  .stage.on { border-color: var(--accent); background: var(--soft); }
+  .stage.on { border-color: var(--line2); background: var(--soft); }
   .stage b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
   .stage span { color: var(--muted); font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--line); background: #fbfaf7; }
-  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table { width: 100%; border-collapse: collapse; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  th { text-align: left; font-size: 12.5px; font-weight: 500; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); background: var(--bg); white-space: nowrap; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); vertical-align: top; }
+  th:last-child, td:last-child { border-right: 0; }
+  tr.sel td { background: #262c38; }
   tr:last-child td { border-bottom: 0; }
   tbody tr { cursor: pointer; }
-  tbody tr:hover { background: #fbfaf7; }
-  td .org { font-weight: 600; }
+  tbody tr:hover td { background: var(--panel); }
+  td .org { font-weight: 500; }
   .who { color: var(--muted); font-size: 13px; }
   td.fit { color: var(--muted); max-width: 320px; }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--bg); border: 1px solid var(--line); white-space: nowrap; color: var(--ink); }
-  .pill.investor { background: #edf1f8; border-color: #d6dfee; }
-  .pill.partner { background: #f3eef7; border-color: #e2d7ec; }
-  .score { display: inline-block; min-width: 34px; text-align: center; padding: 2px 6px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: help; }
-  .score.hot { background: #e3f1ea; color: #1f5a40; }
-  .score.warm { background: #fbf1dc; color: #7a5410; }
-  .score.cold { background: #eeeeec; color: #5c5a54; }
-  .pill.conference { background: #f8f1e6; border-color: #ecdcc2; }
-  .pill.s-Contacted { background: var(--warn-bg); border-color: #efd9ae; }
-  .pill.s-Replied, .pill.s-Meeting { background: var(--soft); border-color: #cfe0d8; color: var(--accent); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 12px; background: var(--soft); border: 0; white-space: nowrap; color: var(--ink); }
+  .pill.investor { background: var(--inv-bg); color: var(--inv); }
+  .pill.partner { background: var(--par-bg); color: var(--par); }
+  .pill.conference { background: var(--con-bg); color: var(--con); }
+  /* Score reads as a grade with a heat word, like a ledger entry. */
+  .score { display: inline-flex; gap: 6px; align-items: baseline; padding: 1px 8px; border: 1px solid var(--line); border-radius: 6px; font-weight: 600; font-size: 13px; cursor: help; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .score i { font-style: normal; font-weight: 500; font-size: 12px; }
+  .score.hot i { color: var(--hot); } .score.warm i { color: var(--con); } .score.cold i { color: var(--muted); }
+  .pill.s-Contacted { background: var(--warn-bg); color: var(--warn); }
+  .pill.s-Replied, .pill.s-Meeting { background: var(--good-bg); color: var(--good); }
   .pill.s-Passed { color: var(--muted); }
   .have { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .have i { font-style: normal; opacity: 0.35; margin-right: 6px; }
-  .have i.yes { opacity: 1; color: var(--accent); font-weight: 600; }
-  .empty { background: var(--panel); border: 1px dashed #cfcabd; border-radius: var(--radius); padding: 34px; text-align: center; color: var(--muted); }
+  .have i.yes { opacity: 1; color: var(--good); font-weight: 600; }
+  .empty { background: var(--bg); border: 1px dashed var(--line2); border-radius: var(--radius); padding: 34px; text-align: center; color: var(--muted); }
   .empty b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; max-width: 780px; }
   .card h3 { margin: 0 0 10px; font-size: 14px; }
@@ -81,14 +94,15 @@
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
   .hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
   .notice { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
-  .scrim { position: fixed; inset: 0; background: rgba(28, 27, 24, 0.28); z-index: 10; }
-  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--bg); border-left: 1px solid var(--line); z-index: 11; display: flex; flex-direction: column; box-shadow: -12px 0 40px rgba(0,0,0,0.08); }
-  .drawer header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 16px 20px 0; }
+  /* The record panel docks beside the list instead of covering it, so the list stays in view. */
+  .scrim { display: none; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; background: var(--bg); border-left: 1px solid var(--line); z-index: 11; display: flex; flex-direction: column; }
+  .drawer header { background: var(--bg); border-bottom: 1px solid var(--line); padding: 16px 20px 0; }
   .drawer header .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .drawer header h2 { font-size: 18px; }
   .drawer header .tabsline { display: flex; gap: 18px; margin-top: 12px; }
   .drawer header .tabsline button { border: 0; background: none; padding: 8px 0; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); }
-  .drawer header .tabsline button.on { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .drawer header .tabsline button.on { color: var(--ink); border-color: var(--ink); font-weight: 500; }
   .drawer .body { overflow: auto; padding: 18px 20px 40px; flex: 1; }
   .drawer .card { max-width: none; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
@@ -99,16 +113,32 @@
   .log li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
   .log li:last-child { border-bottom: 0; }
   .log time { color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 9px 16px; border-radius: 999px; z-index: 30; font-size: 13px; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 999px; z-index: 30; font-size: 13px; }
   pre.sample { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12px; overflow: auto; margin: 8px 0 0; }
   nav .short { display: none; }
   table.plain tbody tr { cursor: default; }
   th.check, td.check { width: 40px; }
-  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); vertical-align: middle; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--inv); vertical-align: middle; }
   .checkline { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 14px; margin: 0; }
   .field { margin-bottom: 12px; }
   .actionbar { position: sticky; bottom: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--bg); border-top: 1px solid var(--line); padding: 12px 0; margin-top: 12px; }
-  .yes { color: var(--accent); font-weight: 600; }
+  .yes { color: var(--good); font-weight: 600; }
+
+  /* Top bar: one box to search everything. */
+  .topbar { display: flex; gap: 10px; align-items: center; margin: -10px 0 18px; }
+  .topbar input[type=search] { flex: 1; width: auto; padding: 9px 12px; background: var(--panel); }
+  /* Record panel pieces */
+  .why-list { list-style: none; margin: 0; padding: 0; }
+  .why-list li { padding: 2px 0; }
+  .why-list li::before { content: "+"; color: var(--hot); margin-right: 8px; font-weight: 600; }
+  .letter { white-space: pre-wrap; line-height: 1.6; }
+  .writer { font-size: 12px; color: var(--muted); }
+  /* Today */
+  .acts { border: 1px solid var(--line); border-radius: var(--radius); max-width: 860px; }
+  .act { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .act:last-child { border-bottom: 0; }
+  .act .n { width: 22px; height: 22px; border-radius: 50%; background: var(--soft); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+  .act p { margin: 0; } .act small { color: var(--muted); }
 
   /* Phones: bottom tab bar, cards instead of tables, full-screen drawer, 44px touch targets. */
   @media (max-width: 760px) {
@@ -144,6 +174,7 @@
     .grid { grid-template-columns: 1fr; }
     .card { padding: 14px; }
     .drawer { width: 100vw; border-left: 0; }
+    body.docked .app { display: block; }
     .drawer .body { padding: 14px 14px 48px; }
     .row .btn { flex: 1 1 auto; }
     .spacer { display: none; }
@@ -165,7 +196,7 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const LI_NOTE_LIMIT = 300;
 
 let S = null;                       // server state
-let view = "pipeline";
+let view = "today";
 let filter = { kind: "all", stage: "all", q: "" };
 let open = null;                    // { id, tab }
 let notice = "";
@@ -210,6 +241,7 @@ const person = (c) => [c.org ? c.name : "", c.role].filter(Boolean).join(", ");
 
 function renderNav() {
   const items = [
+    ["today", "Today", "Today", todayActions().length, true],
     ["pipeline", "Pipeline", "Pipeline", S.contacts.length],
     ["find", "Find leads", "Find", ""],
     ["leads", "All leads", "Leads", (S.allLeads || []).filter((l) => !inPipeline(l)).length],
@@ -220,9 +252,9 @@ function renderNav() {
   $("#nav").innerHTML = `
     <h1>Bridge Outreach</h1>
     <p>Investors, partners, conferences</p>
-    ${items.map(([id, label, short, n]) => `<button data-view="${id}" class="${view === id ? "on" : ""}" ${view === id ? 'aria-current="page"' : ""}><span><span class="long">${label}</span><span class="short">${short}</span></span><span class="count">${n}</span></button>`).join("")}
-    <div class="mode">Drafts: ${S.ai ? "AI-written" : "template (add an API key for AI)"}<br>Gmail: ${S.gmail.connected ? "connected" : "not connected"}</div>`;
-  $("#nav").querySelectorAll("button").forEach((b) => (b.onclick = () => { view = b.dataset.view; notice = ""; render(); }));
+    ${items.map(([id, label, short, n, isNew]) => `<button data-view="${id}" class="${view === id ? "on" : ""}" ${view === id ? 'aria-current="page"' : ""}><span><span class="long">${label}</span><span class="short">${short}</span>${isNew ? `<span class="new">new</span>` : ""}</span><span class="count">${n || ""}</span></button>`).join("")}
+    <div class="mode">Drafts: ${S.ai ? `written by ${esc(S.aiModel)}` : "template (add an API key for AI)"}<br>Gmail: ${S.gmail.connected ? "connected" : "not connected"}</div>`;
+  $("#nav").querySelectorAll("button").forEach((b) => (b.onclick = () => { view = b.dataset.view; notice = ""; if (open) { open = null; $("#overlay").innerHTML = ""; document.body.classList.remove("docked"); } render(); }));
 }
 
 // ---------- pipeline ----------
@@ -235,13 +267,14 @@ function visibleContacts() {
     (!q || [c.org, c.name, c.role, c.fit, c.notes].join(" ").toLowerCase().includes(q)));
 }
 
-const TABLE_HEAD = "<thead><tr><th>Who</th><th>Type</th><th>Why they fit</th><th>Have</th><th>Stage</th><th>Last contact</th></tr></thead>";
+const TABLE_HEAD = "<thead><tr><th>Who</th><th>Score</th><th>Type</th><th>Why they fit</th><th>Have</th><th>Stage</th><th>Last contact</th></tr></thead>";
 
 function contactRows(list) {
   return list.map((c) => {
     const d = daysSince(c.last_contacted);
-    return `<tr data-id="${c.id}">
+    return `<tr data-id="${c.id}" class="${open && open.id === c.id ? "sel" : ""}">
       <td><div class="org">${esc(title(c))}</div><div class="who">${esc(person(c)) || "No person yet"}</div></td>
+      <td>${grade(rateLead(c))}</td>
       <td><span class="pill ${c.kind}">${c.kind}</span></td>
       <td class="fit">${esc(c.fit)}</td>
       <td class="have"><i class="${c.email ? "yes" : ""}">email</i><i class="${c.linkedin ? "yes" : ""}">LinkedIn</i><i class="${c.email_body ? "yes" : ""}">draft</i></td>
@@ -298,7 +331,7 @@ function renderList(list) {
 }
 
 function bindRows() {
-  $("#main").querySelectorAll("tr[data-id]").forEach((tr) => (tr.onclick = () => { open = { id: Number(tr.dataset.id), tab: "outreach" }; notice = ""; renderDrawer(); }));
+  $("#main").querySelectorAll("tr[data-id]").forEach((tr) => (tr.onclick = () => { open = { id: Number(tr.dataset.id), tab: "outreach" }; notice = ""; render(); renderDrawer(); }));
 }
 
 // ---------- find leads ----------
@@ -454,7 +487,7 @@ function rateLead(l) {
     else if (INFLUENCER.test(l.role || "")) { category = "Influencer"; score += 22; why.push("Influencer role +22"); }
     else { category = "Contact"; score += 12; why.push("Named contact +12"); }
     if (l.linkedin) { score += 15; why.push("LinkedIn profile +15"); }
-    if (l.email_available) { score += 20; why.push("Email available +20"); }
+    if (l.email_available || l.email) { score += 20; why.push("Email available +20"); }
   } else {
     score += 5; why.push("Organisation only, no person yet +5");
   }
@@ -467,6 +500,7 @@ function rateLead(l) {
   return { score, tier, category, why };
 }
 const CATEGORIES = ["Decision maker", "Influencer", "Contact", "Firm only"];
+const grade = (r) => `<span class="score ${r.tier.toLowerCase()}" title="${esc(r.why.join("\n"))}">${r.score}<i>${r.tier}</i></span>`;
 
 function visibleLeads() {
   const q = leadsView.q.toLowerCase();
@@ -501,7 +535,7 @@ function renderAllLeads() {
         <th>Score</th><th>Organisation</th><th>Person</th><th>Role</th><th>Category</th><th>Type</th><th>LinkedIn</th><th>Email</th><th>Why they fit</th><th>Found</th></tr></thead><tbody>
       ${list.map((l) => { const r = rateLead(l); return `<tr class="pick">
         <td class="check">${inPipeline(l) ? `<span class="yes" title="In your pipeline">✓</span>` : `<input type="checkbox" data-lpick="${l.id}" aria-label="Select ${esc(l.name || l.org)}" ${leadsView.picked.has(l.id) ? "checked" : ""}>`}</td>
-        <td><span class="score ${r.tier.toLowerCase()}" title="${esc(r.why.join("\n"))}">${r.score}</span><div class="who">${r.tier}</div></td>
+        <td>${grade(r)}</td>
         <td><div class="org">${esc(l.org)}</div>${safeUrl(l.website) ? `<a class="who" href="${esc(safeUrl(l.website))}" target="_blank" rel="noopener">Website</a>` : ""}</td>
         <td>${esc(l.name) || `<span class="who">No person found</span>`}</td>
         <td class="who">${esc(l.role)}</td>
@@ -542,6 +576,51 @@ function renderAllLeads() {
     await call("POST", "/api/leads/forget", { ids: [...leadsView.picked] });
     leadsView.picked = new Set(); render();
   };
+}
+
+// ---------- today ----------
+
+// The few things worth doing now, best first: replies, due follow-ups, the best people not yet written to, then fresh hot leads.
+function todayActions() {
+  if (!S) return [];
+  const acts = [];
+  for (const c of S.contacts.filter((x) => x.stage === "Replied")) {
+    acts.push({ rank: 0, id: c.id, text: `${c.name || title(c)} replied`, sub: `${title(c)} · ${c.kind}`, button: "Open" });
+  }
+  for (const c of followups()) {
+    acts.push({ rank: 1, id: c.id, text: `Follow up with ${c.name || title(c)}, ${daysSince(c.last_contacted)} days since you wrote`, sub: `${title(c)} · ${c.kind}`, button: "Open" });
+  }
+  S.contacts.filter((c) => ["Research", "Ready"].includes(c.stage)).map((c) => ({ c, r: rateLead(c) }))
+    .sort((a, b) => b.r.score - a.r.score).slice(0, 4)
+    .forEach(({ c, r }) => acts.push({ rank: 2, id: c.id, text: `Write to ${c.name || title(c)}`, sub: `${title(c)} · ${c.kind} · score ${r.score} ${r.tier}`, button: c.email_body ? "Open draft" : "Write" }));
+  const hot = (S.allLeads || []).filter((l) => !inPipeline(l) && rateLead(l).tier === "Hot");
+  if (hot.length) acts.push({ rank: 3, view: "leads", text: `${hot.length} hot lead${hot.length === 1 ? "" : "s"} not in your pipeline yet`, sub: "From your searches", button: "Review" });
+  return acts.sort((a, b) => a.rank - b.rank).slice(0, 8);
+}
+
+function renderToday() {
+  const acts = todayActions();
+  const q = (window.todayQ || "").toLowerCase();
+  const hits = q ? [
+    ...S.contacts.filter((c) => [c.org, c.name, c.role, c.fit].join(" ").toLowerCase().includes(q)).map((c) => ({ id: c.id, text: title(c), sub: `${person(c) || c.kind} · in pipeline` })),
+    ...(S.allLeads || []).filter((l) => !inPipeline(l) && [l.org, l.name, l.role, l.fit].join(" ").toLowerCase().includes(q)).map((l) => ({ view: "leads", q: l.org, text: l.org || l.name, sub: `${[l.name, l.role].filter(Boolean).join(", ") || l.kind} · lead` })),
+  ].slice(0, 12) : [];
+  $("#main").innerHTML = `
+    <div class="topbar"><input type="search" id="tq" placeholder="Search people, firms and leads" aria-label="Search everything" value="${esc(window.todayQ || "")}"><button class="btn primary" id="tfind">Find leads</button></div>
+    ${q ? `<h2>Results</h2><p class="sub">${hits.length ? `${hits.length} match${hits.length === 1 ? "" : "es"}` : "Nothing matches. Try a firm or a person's name."}</p>
+      ${hits.length ? `<div class="acts">${hits.map((h, i) => `<div class="act"><span class="n">${i + 1}</span><div><p>${esc(h.text)}</p><small>${esc(h.sub)}</small></div><button class="btn small" data-i="${i}">Open</button></div>`).join("")}</div>` : ""}` : `
+    <h2>Today</h2>
+    <p class="sub">${acts.length ? "What is worth doing now, best first." : "Nothing waiting. Find leads or add a contact to get started."}</p>
+    ${acts.length ? `<div class="acts">${acts.map((a, i) => `<div class="act"><span class="n">${i + 1}</span><div><p>${esc(a.text)}</p><small>${esc(a.sub)}</small></div><button class="btn small ${i === 0 ? "primary" : ""}" data-i="${i}">${a.button}</button></div>`).join("")}</div>` : ""}`}`;
+  const list = q ? hits : acts;
+  $("#main").querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => {
+    const a = list[Number(b.dataset.i)];
+    if (a.id) { open = { id: a.id, tab: "outreach" }; notice = ""; view = "pipeline"; render(); renderDrawer(); }
+    else { view = a.view; if (a.q) { leadsView.q = a.q; leadsView.status = "all"; } render(); }
+  }));
+  const tq = $("#tq");
+  tq.oninput = () => { window.todayQ = tq.value; renderToday(); const el = $("#tq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
+  $("#tfind").onclick = () => { view = "find"; render(); };
 }
 
 // ---------- follow-ups ----------
@@ -644,7 +723,7 @@ function renderSettings() {
 
 // ---------- contact drawer ----------
 
-function closeDrawer() { open = null; notice = ""; $("#overlay").innerHTML = ""; render(); }
+function closeDrawer() { open = null; notice = ""; $("#overlay").innerHTML = ""; document.body.classList.remove("docked"); render(); }
 
 function detailsForm(c) {
   const f = (key, label, type = "text", wide = false, area = false, hint = "") => `
@@ -674,6 +753,7 @@ function outreachPanel(c) {
   const hasDraft = c.email_body || c.li_note || c.li_message;
   return `
     ${notice ? `<div class="notice">${esc(notice)}</div>` : ""}
+    ${(() => { const r = rateLead(c); return `<div class="card"><h3>Why they scored ${r.score} ${grade(r)}</h3><ul class="why-list">${r.why.map((w) => `<li>${esc(w.replace(/ \+\d+$/, ""))}</li>`).join("")}</ul><p class="hint">${r.category}</p></div>`; })()}
     <div class="card">
       <h3>1. Find the right person</h3>
       ${c.name ? `<div>${esc(c.name)}${c.role ? ", " + esc(c.role) : ""} at ${esc(c.org || "their organisation")}</div>` : `<div>No person recorded yet for ${esc(title(c))}.</div>`}
@@ -690,8 +770,9 @@ function outreachPanel(c) {
       <h3>2. Draft</h3>
       <div class="row" style="margin-top:0">
         <button class="btn primary" id="gen">${hasDraft ? "Rewrite drafts" : "Write drafts"}</button>
-        <span class="hint" style="margin:0;flex:1;min-width:220px">${S.ai ? "Written by AI from your pitch and this person's details." : "Built from a template using your pitch and this person's details."} Edit freely; changes save when you click away.</span>
+        ${S.ai && hasDraft ? `<button class="btn small" data-style="warmer">Warmer</button><button class="btn small" data-style="shorter">Shorter</button><button class="btn small" data-style="plainer">Plainer</button>` : ""}
       </div>
+      <p class="hint">${S.ai ? `Written by ${esc(S.aiModel)} from your pitch and this person's details, then checked for phrases that sound machine-written.` : "Built from a template using your pitch and this person's details."} Edit freely; changes save when you click away.</p>
     </div>
     <div class="card">
       <h3>3. Email</h3>
@@ -752,7 +833,8 @@ function renderDrawer() {
   const c = isNew
     ? { kind: filter.kind === "all" ? "investor" : filter.kind, stage: "Research", org: "", name: "", role: "", email: "", linkedin: "", website: "", fit: "", warm_path: "", notes: "" }
     : S.contacts.find((x) => x.id === open.id);
-  if (!c) { open = null; $("#overlay").innerHTML = ""; return; }
+  if (!c) { open = null; $("#overlay").innerHTML = ""; document.body.classList.remove("docked"); return; }
+  document.body.classList.add("docked");
   const tabs = isNew ? [["details", "Details"]] : [["outreach", "Outreach"], ["details", "Details"], ["activity", "History"]];
   const scroll = $("#overlay .body")?.scrollTop || 0;
   $("#overlay").innerHTML = `
@@ -809,12 +891,15 @@ function renderDrawer() {
     const n = e.target.value.length, el = $("#notecount");
     el.textContent = `${n} / ${LI_NOTE_LIMIT}`; el.classList.toggle("over", n > LI_NOTE_LIMIT);
   };
-  $("#gen").onclick = async (e) => {
-    e.target.disabled = true; e.target.textContent = "Writing...";
-    try { const r = await call("POST", `/api/contacts/${c.id}/draft`); notice = r.warning || ""; }
+  const write = async (btn, style) => {
+    O.querySelectorAll("#gen, [data-style]").forEach((b) => (b.disabled = true));
+    btn.textContent = "Writing...";
+    try { const r = await call("POST", `/api/contacts/${c.id}/draft`, style ? { style } : undefined); notice = r.warning || ""; }
     catch (err) { notice = err.message; }
     render(); renderDrawer();
   };
+  $("#gen").onclick = (e) => write(e.target, "");
+  O.querySelectorAll("[data-style]").forEach((b) => (b.onclick = () => write(b, b.dataset.style)));
   const copy = async (text, label) => { try { await navigator.clipboard.writeText(text); toast(label); } catch { toast("Could not copy. Select the text and copy it by hand."); } };
   const li = safeUrl(c.linkedin);
   $("#copyemail").onclick = () => copy(`${$("#d_email_subject").value}\n\n${$("#d_email_body").value}`, "Email copied");
@@ -852,7 +937,7 @@ function renderDrawer() {
 
 function render() {
   renderNav();
-  ({ pipeline: renderPipeline, find: renderFind, leads: renderAllLeads, followups: renderFollowups, import: renderImport, settings: renderSettings })[view]();
+  ({ today: renderToday, pipeline: renderPipeline, find: renderFind, leads: renderAllLeads, followups: renderFollowups, import: renderImport, settings: renderSettings })[view]();
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) closeDrawer(); });
 call("GET", "/api/state")
