@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bridge Outreach: three UI directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #e9ebee; font: 15px/1.5 "Instrument Sans", system-ui, sans-serif; color: #1d2128; }
+  .page { max-width: 1360px; margin: 0 auto; padding: 32px 24px 64px; }
+  .page > h1 { font-size: 26px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .page > p { margin: 0 0 22px; max-width: 70ch; color: #4a505b; }
+  .switch { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .switch button { font: inherit; font-weight: 500; padding: 9px 16px; border-radius: 8px; border: 1px solid #c9cdd4; background: #fff; cursor: pointer; }
+  .switch button[aria-pressed="true"] { background: #1d2128; color: #fff; border-color: #1d2128; }
+  .switch button:focus-visible { outline: 3px solid #4d7cff; outline-offset: 2px; }
+  .why { margin: 0 0 14px; max-width: 80ch; color: #3a3f48; }
+  .frame { border-radius: 12px; overflow: hidden; box-shadow: 0 1px 0 rgba(0,0,0,.06), 0 18px 50px -20px rgba(20,30,50,.35); }
+  .opt { display: none; } .opt.on { display: block; }
+  .new { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 99px; margin-left: 6px; vertical-align: 1px; }
+
+  /* ---------- A: Night desk ---------- */
+  .A { --bg:#1B1F27; --panel:#222731; --line:#2E3440; --ink:#E7EAF0; --dim:#8B93A3; --inv:#7EA6FF; --par:#C49BFF; --con:#F2B45A; --hot:#FF8A5C;
+       background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 13.5px;
+       display: grid; grid-template-columns: 210px 1fr 380px; height: 760px; }
+  .A nav { border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .A nav b { font-size: 14px; padding: 4px 10px 14px; }
+  .A nav a { display: flex; justify-content: space-between; padding: 7px 10px; border-radius: 6px; color: var(--dim); text-decoration: none; }
+  .A nav a.on { background: var(--panel); color: var(--ink); }
+  .A nav a span { color: var(--dim); font-size: 12px; }
+  .A .new { background: #2c3a5c; color: #a9c1ff; }
+  .A main { overflow: hidden; display: flex; flex-direction: column; }
+  .A .top { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .A .ask { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; color: var(--dim); }
+  .A .btn { background: var(--ink); color: var(--bg); border-radius: 7px; padding: 7px 12px; font-weight: 600; }
+  .A .views { display: flex; gap: 6px; padding: 12px 18px 8px; }
+  .A .views span { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); color: var(--dim); }
+  .A .views span.on { color: var(--ink); background: var(--panel); }
+  .A table { border-collapse: collapse; width: 100%; }
+  .A th { text-align: left; font-weight: 500; color: var(--dim); padding: 8px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); white-space: nowrap; }
+  .A td { padding: 9px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); white-space: nowrap; }
+  .A tr.sel td { background: #262c38; }
+  .A .chip { padding: 2px 8px; border-radius: 5px; font-size: 12px; }
+  .A .inv { background: #233154; color: var(--inv); } .A .par { background: #33264b; color: var(--par); } .A .con { background: #3d2f1b; color: var(--con); }
+  .A .grade { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; }
+  .A .grade b { color: var(--ink); } .A .grade i { font-style: normal; color: var(--hot); } .A .grade i.w { color: var(--con); } .A .grade i.c { color: var(--dim); }
+  .A .stage { color: var(--dim); }
+  .A aside { border-left: 1px solid var(--line); padding: 18px; overflow: hidden; }
+  .A aside h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .A aside .sub { color: var(--dim); margin: 2px 0 14px; }
+  .A aside h4 { font-size: 12.5px; color: var(--dim); font-weight: 500; margin: 16px 0 6px; }
+  .A .why-list div { padding: 3px 0; }
+  .A .why-list div::before { content: "+"; color: var(--hot); margin-right: 8px; }
+  .A .tl div { display: grid; grid-template-columns: 74px 1fr; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .A .tl div span { color: var(--dim); }
+  .A .draft { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; line-height: 1.55; }
+  .A .row { display: flex; gap: 8px; margin-top: 10px; }
+  .A .ghost { border: 1px solid var(--line); border-radius: 7px; padding: 6px 11px; }
+
+  /* ---------- B: Daylight ---------- */
+  .B { --ink:#1E2420; --dim:#68706B; --line:#E3E6E3; --brand:#2f5d50; --tint:#EEF4F1; --paper:#FFFFFF; --side:#F6F7F5;
+       background: var(--paper); color: var(--ink); font-family: "Instrument Sans", system-ui, sans-serif; font-size: 14px;
+       display: grid; grid-template-columns: 220px 1fr; height: 760px; }
+  .B nav { background: var(--side); border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .B nav b { font-size: 15px; padding: 2px 10px 0; } .B nav small { color: var(--dim); padding: 0 10px 14px; }
+  .B nav a { display: flex; justify-content: space-between; padding: 8px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; }
+  .B nav a.on { background: var(--tint); color: var(--brand); font-weight: 600; }
+  .B nav a span { color: var(--dim); }
+  .B .new { background: #dcebe4; color: var(--brand); }
+  .B main { padding: 26px 32px; overflow: hidden; position: relative; }
+  .B h2 { font-size: 24px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .B .lede { color: var(--dim); margin: 2px 0 20px; }
+  .B .today { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 24px; }
+  .B .act { display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .B .act:last-child { border-bottom: 0; }
+  .B .act .n { width: 24px; height: 24px; border-radius: 50%; background: var(--tint); color: var(--brand); display: grid; place-items: center; font-weight: 600; font-size: 12.5px; }
+  .B .act p { margin: 0; } .B .act small { color: var(--dim); }
+  .B .go { background: var(--brand); color: #fff; padding: 7px 13px; border-radius: 8px; font-weight: 600; }
+  .B .go.alt { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .B h3 { font-size: 16px; margin: 0 0 10px; font-weight: 600; }
+  .B table { width: 100%; border-collapse: collapse; }
+  .B th { text-align: left; color: var(--dim); font-weight: 500; font-size: 13px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .B td { padding: 10px; border-bottom: 1px solid var(--line); }
+  .B .score { display: inline-block; min-width: 34px; text-align: center; border-radius: 6px; font-weight: 600; padding: 1px 6px; }
+  .B .hot { background: #e3f1ea; color: #1f5a40; } .B .warm { background: #fbf1dc; color: #7a5410; } .B .cold { background: #eeeeec; color: #5c5a54; }
+  .B .pill { padding: 2px 8px; border-radius: 99px; font-size: 12px; border: 1px solid; }
+  .B .pi { background: #edf1f8; border-color: #d6dfee; } .B .pp { background: #f3eef7; border-color: #e2d7ec; } .B .pc { background: #f8f1e6; border-color: #ecdcc2; }
+  .B .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; background: #fff; border-left: 1px solid var(--line); box-shadow: -18px 0 40px -28px rgba(0,0,0,.35); padding: 22px; }
+  .B .drawer h4 { margin: 0; font-size: 18px; } .B .drawer .sub { color: var(--dim); margin-bottom: 14px; }
+  .B .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  .B .tabs span { padding: 6px 10px; color: var(--dim); } .B .tabs span.on { color: var(--brand); border-bottom: 2px solid var(--brand); font-weight: 600; }
+  .B .field { color: var(--dim); font-size: 12.5px; margin-top: 10px; }
+  .B .box { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 4px; line-height: 1.55; }
+
+  /* ---------- C: Letters ---------- */
+  .C { --ink:#22252B; --dim:#6B7079; --line:#E5E2DC; --paper:#FFFFFF; --desk:#F3F2EF; --brand:#2f5d50;
+       background: var(--desk); color: var(--ink); font-family: "Instrument Sans", system-ui, sans-serif; font-size: 14px;
+       display: grid; grid-template-columns: 64px 300px 1fr 300px; height: 760px; }
+  .C .rail { background: #22252B; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 18px 0; color: #9aa0aa; font-size: 11px; text-align: center; }
+  .C .rail div { width: 48px; } .C .rail .on { color: #fff; } .C .rail i { display: block; width: 22px; height: 22px; margin: 0 auto 3px; border-radius: 6px; border: 1.5px solid currentColor; }
+  .C .list { background: var(--paper); border-right: 1px solid var(--line); overflow: hidden; }
+  .C .list header { padding: 16px 16px 10px; }
+  .C .list header b { font-size: 16px; } .C .list header p { margin: 2px 0 0; color: var(--dim); font-size: 13px; }
+  .C .seg { display: flex; gap: 6px; padding: 0 16px 10px; } .C .seg span { padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); font-size: 12.5px; color: var(--dim); } .C .seg span.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .C .person { padding: 11px 16px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+  .C .person.on { background: #eef3f0; box-shadow: inset 3px 0 0 var(--brand); }
+  .C .person small { color: var(--dim); grid-column: 1; }
+  .C .person em { font-style: normal; font-weight: 600; font-size: 12.5px; grid-row: 1 / 3; grid-column: 2; align-self: center; }
+  .C .desk { padding: 26px 34px; overflow: hidden; }
+  .C .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; color: var(--dim); font-size: 13px; }
+  .C .chan { display: flex; gap: 4px; } .C .chan span { padding: 5px 10px; border-radius: 7px; } .C .chan span.on { background: #fff; border: 1px solid var(--line); color: var(--ink); font-weight: 500; }
+  .C .letter { background: var(--paper); border: 1px solid var(--line); border-radius: 4px; padding: 34px 44px; box-shadow: 0 1px 0 rgba(0,0,0,.03); max-width: 640px; }
+  .C .letter .to { font-size: 13px; color: var(--dim); border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
+  .C .letter h3 { font-family: "Newsreader", Georgia, serif; font-weight: 500; font-size: 22px; margin: 0 0 16px; }
+  .C .letter p { font-family: "Newsreader", Georgia, serif; font-size: 17.5px; line-height: 1.62; margin: 0 0 13px; max-width: 62ch; }
+  .C .tools { display: flex; gap: 8px; margin-top: 16px; max-width: 640px; align-items: center; }
+  .C .tools .send { margin-left: auto; background: var(--brand); color: #fff; padding: 8px 14px; border-radius: 8px; font-weight: 600; }
+  .C .tools span { border: 1px solid var(--line); background: #fff; padding: 7px 12px; border-radius: 8px; }
+  .C .facts { background: var(--paper); border-left: 1px solid var(--line); padding: 20px; }
+  .C .facts h4 { margin: 18px 0 6px; font-size: 13px; color: var(--dim); font-weight: 500; } .C .facts h4:first-child { margin-top: 0; }
+  .C .big { display: flex; align-items: baseline; gap: 8px; } .C .big b { font-size: 34px; font-weight: 600; } .C .big span { color: #1f5a40; font-weight: 600; }
+  .C .facts ul { margin: 0; padding-left: 18px; color: #3d424a; } .C .facts li { margin: 2px 0; }
+  .C .seq div { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 4px 0; }
+  .C .seq i { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line); font-style: normal; font-size: 11px; display: grid; place-items: center; }
+  .C .seq .done i { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .C .new { background: #dcebe4; color: var(--brand); }
+
+  @media (max-width: 1100px) { .frame { overflow-x: auto; } .A, .B, .C { min-width: 1150px; } }
+  @media (prefers-reduced-motion: no-preference) { .opt.on .frame { animation: in .25s ease-out; } @keyframes in { from { opacity: .4; } } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Bridge Outreach: three UI directions</h1>
+  <p>Same app, same data, three looks. All three add Today, Sequences and Inbox (marked new) and keep your existing page names. Sample people and firms are made up.</p>
+  <div class="switch" role="group" aria-label="Choose a direction">
+    <button aria-pressed="true" data-o="A">A · Night desk</button>
+    <button aria-pressed="false" data-o="B">B · Daylight</button>
+    <button aria-pressed="false" data-o="C">C · Letters</button>
+  </div>
+
+  <!-- A -->
+  <section class="opt on" id="opt-A">
+    <p class="why"><b>Closest to Monaco.</b> Dark, dense and fast to scan: every lead in one wide table, with the selected one open on the right showing why it scored high, its history, and the next draft. Best if you live in the list and work through many leads a day.</p>
+    <div class="frame"><div class="A">
+      <nav aria-label="Main">
+        <b>Bridge Outreach</b>
+        <a href="#">Today<em class="new">new</em><span>4</span></a>
+        <a href="#">Pipeline<span>12</span></a>
+        <a href="#" class="on">All leads<span>38</span></a>
+        <a href="#">Find leads<span></span></a>
+        <a href="#">Sequences<em class="new">new</em><span>2</span></a>
+        <a href="#">Inbox<em class="new">new</em><span>3</span></a>
+        <a href="#">Follow-ups<span>5</span></a>
+        <a href="#">Import<span></span></a>
+        <a href="#">Your pitch<span></span></a>
+      </nav>
+      <main>
+        <div class="top"><div class="ask">Ask about your leads, or search: "investors who backed collaboration tools"</div><span class="btn">Find leads</span></div>
+        <div class="views"><span class="on">New · 26</span><span>In pipeline · 12</span><span>Investors</span><span>Partners</span><span>Conferences</span></div>
+        <table>
+          <thead><tr><th>Organisation</th><th>Person</th><th>Score</th><th>Category</th><th>Type</th><th>Stage</th></tr></thead>
+          <tbody>
+            <tr class="sel"><td>Northlight Ventures</td><td>Priya Raman</td><td><span class="grade"><b>90</b><i>Hot</i></span></td><td>Decision maker</td><td><span class="chip inv">investor</span></td><td class="stage">Research</td></tr>
+            <tr><td>Harbor Seed</td><td>Dana Lee</td><td><span class="grade"><b>81</b><i>Hot</i></span></td><td>Decision maker</td><td><span class="chip inv">investor</span></td><td class="stage">Ready</td></tr>
+            <tr><td>Circle Leaders Network</td><td>Tom Okafor</td><td><span class="grade"><b>74</b><i>Hot</i></span></td><td>Decision maker</td><td><span class="chip par">partner</span></td><td class="stage">Contacted</td></tr>
+            <tr><td>Assembly Labs</td><td>Maya Chen</td><td><span class="grade"><b>58</b><i class="w">Warm</i></span></td><td>Influencer</td><td><span class="chip par">partner</span></td><td class="stage">Research</td></tr>
+            <tr><td>Collective Minds Summit</td><td>Ravi Patel</td><td><span class="grade"><b>52</b><i class="w">Warm</i></span></td><td>Influencer</td><td><span class="chip con">conference</span></td><td class="stage">Research</td></tr>
+            <tr><td>Open Room Forum</td><td>Lena Ortiz</td><td><span class="grade"><b>47</b><i class="w">Warm</i></span></td><td>Influencer</td><td><span class="chip con">conference</span></td><td class="stage">Research</td></tr>
+            <tr><td>Fieldwork Capital</td><td style="color:var(--dim)">No person found</td><td><span class="grade"><b>20</b><i class="c">Cold</i></span></td><td>Firm only</td><td><span class="chip inv">investor</span></td><td class="stage">Research</td></tr>
+          </tbody>
+        </table>
+      </main>
+      <aside>
+        <h3>Priya Raman</h3>
+        <div class="sub">General Partner, Northlight Ventures</div>
+        <h4>Why she scored 90</h4>
+        <div class="why-list"><div>Decision maker role</div><div>Email available</div><div>Led a seed round in team collaboration</div><div>LinkedIn profile and website known</div></div>
+        <h4>History</h4>
+        <div class="tl"><div><span>Nov 10</span>Found by investor search</div><div><span>Nov 12</span>Score rose after a second search</div></div>
+        <h4>Next email</h4>
+        <div class="draft">Hi Priya, you led the seed in a team-collaboration startup last year, so I think roundtable is close to your thesis. We run rooms of up to six people with an AI co-host. Would a 20-minute call next week work?</div>
+        <div class="row"><span class="btn">Send</span><span class="ghost">Rewrite</span><span class="ghost">Add to sequence</span></div>
+      </aside>
+    </div></div>
+  </section>
+
+  <!-- B -->
+  <section class="opt" id="opt-B">
+    <p class="why"><b>Your current look, grown up.</b> Light and calm, in the green you already use. It opens on Today: the few things worth doing now, ranked, each with one button. Leads open in a drawer so you never lose your place.</p>
+    <div class="frame"><div class="B">
+      <nav aria-label="Main">
+        <b>Bridge Outreach</b><small>Investors, partners, conferences</small>
+        <a href="#" class="on">Today<em class="new">new</em><span>4</span></a>
+        <a href="#">Pipeline<span>12</span></a>
+        <a href="#">All leads<span>38</span></a>
+        <a href="#">Find leads<span></span></a>
+        <a href="#">Sequences<em class="new">new</em><span>2</span></a>
+        <a href="#">Inbox<em class="new">new</em><span>3</span></a>
+        <a href="#">Follow-ups<span>5</span></a>
+        <a href="#">Import<span></span></a>
+        <a href="#">Your pitch<span></span></a>
+      </nav>
+      <main>
+        <h2>Today</h2>
+        <p class="lede">Four things worth doing, best first.</p>
+        <div class="today">
+          <div class="act"><span class="n">1</span><div><p>Tom Okafor replied: "Send me a one-pager."</p><small>Circle Leaders Network · partner · 2 hours ago</small></div><span class="go">Draft reply</span></div>
+          <div class="act"><span class="n">2</span><div><p>Write to Priya Raman, your highest-scoring new lead</p><small>Northlight Ventures · investor · score 90</small></div><span class="go">Open draft</span></div>
+          <div class="act"><span class="n">3</span><div><p>Follow up with Dana Lee, 6 days since your email</p><small>Harbor Seed · investor</small></div><span class="go alt">Send follow-up</span></div>
+          <div class="act"><span class="n">4</span><div><p>12 new leads from last night's search</p><small>Investors · 5 hot</small></div><span class="go alt">Review</span></div>
+        </div>
+        <h3>Best new leads</h3>
+        <table>
+          <thead><tr><th>Score</th><th>Organisation</th><th>Person</th><th>Category</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr><td><span class="score hot">90</span></td><td><b>Northlight Ventures</b></td><td>Priya Raman</td><td>Decision maker</td><td><span class="pill pi">investor</span></td></tr>
+            <tr><td><span class="score hot">81</span></td><td><b>Harbor Seed</b></td><td>Dana Lee</td><td>Decision maker</td><td><span class="pill pi">investor</span></td></tr>
+            <tr><td><span class="score warm">58</span></td><td><b>Assembly Labs</b></td><td>Maya Chen</td><td>Influencer</td><td><span class="pill pp">partner</span></td></tr>
+            <tr><td><span class="score warm">52</span></td><td><b>Collective Minds Summit</b></td><td>Ravi Patel</td><td>Influencer</td><td><span class="pill pc">conference</span></td></tr>
+          </tbody>
+        </table>
+        <div class="drawer">
+          <h4>Priya Raman</h4>
+          <div class="sub">General Partner, Northlight Ventures · score 90</div>
+          <div class="tabs"><span class="on">Email</span><span>LinkedIn</span><span>History</span><span>Notes</span></div>
+          <div class="field">Subject</div>
+          <div class="box">Roundtable and your collaboration thesis</div>
+          <div class="field">Email</div>
+          <div class="box">Hi Priya,<br><br>You led the seed in a team-collaboration startup last year, so I think roundtable sits close to your thesis. We run focused rooms of up to six people, with an AI co-host that turns the conversation into next steps.<br><br>Would a 20-minute call next week work?<br><br>Adnan</div>
+          <div style="display:flex;gap:8px;margin-top:12px"><span class="go">Send</span><span class="go alt">Rewrite</span></div>
+        </div>
+      </main>
+    </div></div>
+  </section>
+
+  <!-- C -->
+  <section class="opt" id="opt-C">
+    <p class="why"><b>Built around writing.</b> People on the left, the draft in the middle set like a real letter, facts and score on the right. Each email gets your full attention, which suits a founder who wants every note to sound like a person wrote it.</p>
+    <div class="frame"><div class="C">
+      <div class="rail" aria-label="Main">
+        <div><i></i>Today</div><div class="on"><i></i>Write</div><div><i></i>Pipeline</div><div><i></i>All leads</div><div><i></i>Find leads</div><div><i></i>Inbox</div><div><i></i>Your pitch</div>
+      </div>
+      <div class="list">
+        <header><b>To write</b><p>8 people, highest score first</p></header>
+        <div class="seg"><span class="on">New</span><span>Follow-ups</span><span>Replies</span></div>
+        <div class="person on"><b>Priya Raman</b><small>Northlight Ventures</small><em>90</em></div>
+        <div class="person"><b>Dana Lee</b><small>Harbor Seed · follow-up</small><em>81</em></div>
+        <div class="person"><b>Tom Okafor</b><small>Circle Leaders Network · replied</small><em>74</em></div>
+        <div class="person"><b>Maya Chen</b><small>Assembly Labs</small><em>58</em></div>
+        <div class="person"><b>Ravi Patel</b><small>Collective Minds Summit</small><em>52</em></div>
+        <div class="person"><b>Lena Ortiz</b><small>Open Room Forum</small><em>47</em></div>
+      </div>
+      <div class="desk">
+        <div class="meta"><div class="chan"><span class="on">Email</span><span>LinkedIn note</span><span>LinkedIn message</span></div><span>Draft 2 of 2 · 96 words</span></div>
+        <div class="letter">
+          <div class="to">To Priya Raman &lt;priya@northlight.vc&gt;</div>
+          <h3>Roundtable and your collaboration thesis</h3>
+          <p>Hi Priya,</p>
+          <p>You led the seed in a team-collaboration startup last year, so I think what we are building sits close to your thesis.</p>
+          <p>At thebridge we run roundtable: focused rooms of up to six people, with an AI co-host called Nova that helps the group reach shared understanding and turns it into next steps.</p>
+          <p>Would a 20-minute call next week work?</p>
+          <p>Adnan</p>
+        </div>
+        <div class="tools"><span>Rewrite warmer</span><span>Shorter</span><span>Edit</span><span class="send">Send email</span></div>
+      </div>
+      <div class="facts">
+        <h4>Score</h4>
+        <div class="big"><b>90</b><span>Hot</span></div>
+        <ul><li>Decision maker role</li><li>Email available</li><li>Clear reason they fit</li></ul>
+        <h4>Why she fits</h4>
+        <p style="margin:0">Led the seed round of a team-collaboration startup last year.</p>
+        <h4>Sequence<em class="new">new</em></h4>
+        <div class="seq">
+          <div class="done"><i>1</i>First email</div>
+          <div><i>2</i>Follow-up after 4 days</div>
+          <div><i>3</i>LinkedIn note after 7 days</div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+</div>
+<script>
+  document.querySelectorAll(".switch button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".switch button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    document.querySelectorAll(".opt").forEach((o) => o.classList.toggle("on", o.id === "opt-" + b.dataset.o));
+  }));
+</script>
+</body>
+</html>
