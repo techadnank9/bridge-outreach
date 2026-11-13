@@ -68,6 +68,9 @@ body { font-family: var(--font-family-body, "Figtree", system-ui, sans-serif); }
 /* Collapse toggle sits beside the product name, where it is easy to find */
 .nav-head { display: flex; align-items: center; gap: 4px; }
 .nav-head > :first-child { flex: 1; min-width: 0; }
+/* Collapsed rail: the toggle sits under the logo, inside the rail */
+.nav-head--collapsed { flex-direction: column; align-items: center; gap: 6px; }
+.nav-head--collapsed > :first-child { flex: none; }
 
 /* Custom rewrite instructions under the email */
 .ask-box { display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: rgb(255 255 255 / 0.03); border: 1px solid rgb(255 255 255 / 0.07); }

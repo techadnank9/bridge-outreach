@@ -30,6 +30,10 @@ export function App() {
   const [error, setError] = useState("");
   const [view, setView] = useState(() => (location.hash.slice(1) in PAGES ? location.hash.slice(1) : "today"));
   const [opened, setOpened] = useState(null);
+  // Collapse state is held here so the header can stack its toggle under the logo when the menu is narrow.
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const toggle = { isCollapsed: navCollapsed, onCollapsedChange: setNavCollapsed };
+  const collapsible = { ...toggle, hasButton: false };
   const toast = useToast();
 
   const refresh = useCallback(async () => setS(await call("GET", "/api/state")), []);
@@ -94,15 +98,15 @@ export function App() {
         contentPadding={0}
         sideNav={
           <SideNav
-            collapsible={{ hasButton: false }}
+            collapsible={collapsible}
             header={
-              <div className="nav-head">
+              <div className={`nav-head${navCollapsed ? " nav-head--collapsed" : ""}`}>
                 <SideNavHeading
                   heading="Bridge Outreach"
                   subheading="Investors, partners, conferences, communities"
                   icon={<NavIcon icon={<Icon icon={Orbit} size="sm" />} />}
                 />
-                <SideNavCollapseButton />
+                <SideNavCollapseButton collapsible={toggle} />
               </div>
             }
             footer={
