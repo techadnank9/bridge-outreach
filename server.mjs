@@ -160,6 +160,13 @@ function leadResults() {
 if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "gmail_draft_at")) {
   db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_at TEXT");
 }
+// The next follow-up for someone who has not replied yet.
+if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "followup_body")) {
+  db.exec("ALTER TABLE contacts ADD COLUMN followup_subject TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE contacts ADD COLUMN followup_body TEXT NOT NULL DEFAULT ''");
+}
+const MAX_FOLLOWUPS = 3;
+const followupsSent = (id) => db.prepare("SELECT count(*) AS n FROM activity WHERE contact_id = ? AND summary LIKE 'Follow-up%'").get(id).n;
 
 const DEFAULT_SETTINGS = {
   founder_name: "",
@@ -718,6 +725,7 @@ const SLOP = [
   /intersection of/i, /\bempower/i, /\bcutting[- ]edge\b/i, /\binnovative\b/i, /\bpassionate\b/i, /\bthrilled\b/i,
   /\bin today's\b/i, /\btouch base\b/i, /\bcircle back\b/i, /\bgroundbreaking\b/i, /\btransformative\b/i,
   /\bjourney\b/i, /\bi wanted to\b/i, /\bmy name is\b/i, /\bperfect fit\b/i, /\blove to connect\b/i, /\bpick your brain\b/i,
+  /collaboration opportunity/i, /request for a meeting/i, /respected sir/i, /\bfull[- ]funnel\b/i, /\bend[- ]to[- ]end\b/i,
   /—/, /!/,
 ];
 const slopIn = (draft) => [...new Set(SLOP.filter((re) => re.test(Object.values(draft).join(" "))).map((re) => (re.source === "—" ? "em dash" : re.source === "!" ? "exclamation mark" : re.source.replace(/\\b|\\s\?|\(\?:|\)|\\|\[|\]|\?|-/g, " ").replace(/\s+/g, " ").trim())))];
@@ -728,10 +736,11 @@ const DRAFT_SYSTEM = [
   "",
   "How to write it:",
   "- Open with the specific reason you are writing to them: the warm path if there is one, otherwise the concrete thing in why_they_fit. Never open with who you are, a pleasantry, or a compliment.",
-  "- Then one or two plain sentences on what thebridge does, said the way you would say it out loud, tied to why it matters to them.",
-  "- End with one small, specific ask phrased as a question. No menu of options.",
+  "- Then ONE plain sentence on what thebridge does, framed as what this reader gets from it, short enough that they could repeat it to someone else. Do not paste or paraphrase the whole pitch; pick the part that matters to this reader.",
+  "- If proof_points are supplied, add one sentence with the single proof point this reader would care most about. If none are supplied, write no proof sentence at all; never imply traction.",
+  "- Put the ask alone on its own line: one small, specific next step phrased as a question, easy to say yes to. No menu of options.",
   "- Use contractions. Mix short and medium sentences. No lists, no bold, no headings, no buzzwords.",
-  "- Sign off with the sender's first name only, on its own line, with no closing phrase like Best or Cheers before it.",
+  "- Sign-off: on a cold message (no warm path), the sender's first name on one line, then their title and company and one link on the next line, for example 'Adnan' then 'Founder, thebridge · thebridge.ai'. With a warm path, the first name alone is enough. Never a closing phrase like Best or Cheers, never a quote, never more than one link.",
   "- Use only the facts supplied. Never invent traction, numbers, mutual connections, or anything about the recipient. If a fact is missing, write around it.",
   "- Never use: I hope this finds you well, reaching out, I wanted to, my name is, excited, thrilled, passionate, leverage, synergy, seamless, unlock, innovative, cutting-edge, game-changer, journey, perfect fit, pick your brain, circle back, touch base. No em dashes, no exclamation marks.",
   "",
@@ -751,7 +760,7 @@ function parseDraft(text) {
   return out;
 }
 
-async function claudeText(model, messages) {
+async function claudeText(model, messages, system = DRAFT_SYSTEM) {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic();
   const response = await client.beta.messages.create({
@@ -760,20 +769,20 @@ async function claudeText(model, messages) {
     output_config: { effort: "high" },
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
-    system: DRAFT_SYSTEM,
+    system,
     messages,
   });
   if (response.stop_reason === "refusal") throw new Error("The model declined to write this draft.");
   return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
 }
 
-async function openaiText(model, messages) {
+async function openaiText(model, messages, system = DRAFT_SYSTEM) {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      instructions: DRAFT_SYSTEM,
+      instructions: system,
       input: messages.map((m) => ({ role: m.role, content: m.content })),
       reasoning: { effort: "high" },
     }),
@@ -783,13 +792,13 @@ async function openaiText(model, messages) {
   return data.output_text ?? (data.output || []).flatMap((o) => o.content || []).filter((p) => p.type === "output_text").map((p) => p.text).join("");
 }
 
-async function writeWith(messages) {
-  if (AI_PROVIDER === "openai") return openaiText(MODEL, messages);
+async function writeWith(messages, system = DRAFT_SYSTEM) {
+  if (AI_PROVIDER === "openai") return openaiText(MODEL, messages, system);
   try {
-    return await claudeText(MODEL, messages);
+    return await claudeText(MODEL, messages, system);
   } catch (error) {
     // An account without access to the top model still gets drafts from Opus.
-    if (MODEL === "claude-fable-5-2" && (error.status === 404 || error.status === 403)) return claudeText("claude-opus-5-5", messages);
+    if (MODEL === "claude-fable-5-2" && (error.status === 404 || error.status === 403)) return claudeText("claude-opus-5-5", messages, system);
     throw error;
   }
 }
@@ -833,6 +842,55 @@ async function aiDraft(c, s, instruction = "") {
     try { draft = parseDraft(second); } catch { /* keep the first draft if the rewrite came back malformed */ }
   }
   return draft;
+}
+
+const FOLLOWUP_SYSTEM = [
+  "You write a follow-up to a first-touch email that got no reply, as the same founder, in the same voice: short, specific, clearly typed by a person.",
+  "- Shorter than the first email: 30 to 70 words including greeting and sign-off.",
+  "- Open with one light line that brings the first email back up without guilt. Vary it. Never: just following up, just checking in, bumping this, circling back, any chance you saw.",
+  "- Then exactly ONE new thing the first email did not say. Good new things: a concrete picture of what one roundtable would look like for their firm, members or event; a specific idea tied to why they fit; the proof point, if one is supplied and was not used. Never repeat the pitch and never invent facts.",
+  "- Then the ask again, made even smaller, alone on its own line as a question.",
+  "- Sign off with the sender's first name only.",
+  "- If this is the last follow-up, end gracefully: make it easy to say not now, and leave the door open.",
+  "- No em dashes, no exclamation marks, no buzzwords.",
+  "Return only a JSON object with the string key followup_body.",
+].join("\n");
+
+async function followupFor(c, n) {
+  const s = getSettings();
+  const subject = c.email_subject ? (/^re:/i.test(c.email_subject) ? c.email_subject : `Re: ${c.email_subject}`) : "";
+  if (!aiEnabled) {
+    const first = (c.name || "").split(" ")[0] || "there";
+    const body = n >= MAX_FOLLOWUPS
+      ? `Hi ${first}, last note from me on this. If now isn't the right time, no problem at all, and I'm happy to pick it up later.\n\n${askFor(s, c.kind)} Still open to it?\n\n${s.founder_name || "[your name]"}`
+      : `Hi ${first}, bringing this back up in case it got buried.\n\n${askFor(s, c.kind)} Would that work?\n\n${s.founder_name || "[your name]"}`;
+    return { followup_subject: subject, followup_body: body, source: "template" };
+  }
+  const facts = {
+    sender: { name: s.founder_name || "[your name]", company: s.company, what_we_do: s.pitch, proof_points: s.proof || "(none supplied)", link: s.link },
+    recipient: { type: c.kind, organisation: c.org, name: c.name || "(unknown)", role: c.role || "(unknown)", why_they_fit: c.fit || "(not recorded)", notes: c.notes || "(none)" },
+    the_ask: askFor(s, c.kind),
+    first_email: { subject: c.email_subject, body: c.email_body },
+    this_followup: `${n} of ${MAX_FOLLOWUPS}${n >= MAX_FOLLOWUPS ? " (the last one)" : ""}`,
+  };
+  const messages = [{ role: "user", content: `Write the follow-up.\n\n${JSON.stringify(facts, null, 2)}` }];
+  const write = (msgs) => (AI_PROVIDER === "openai" ? openaiText(MODEL, msgs, FOLLOWUP_SYSTEM) : writeWith(msgs, FOLLOWUP_SYSTEM));
+  const first = await write(messages);
+  const parse = (text) => {
+    const start = text.indexOf("{"), end = text.lastIndexOf("}");
+    const body = start >= 0 ? JSON.parse(text.slice(start, end + 1)).followup_body : "";
+    if (typeof body !== "string" || !body.trim()) throw new Error("The model did not return a follow-up.");
+    return body.trim();
+  };
+  let body = parse(first);
+  const found = [...slopIn({ body }), ...(/just (following up|checking in)|bumping/i.test(body) ? ["just following up"] : [])];
+  if (found.length) {
+    try {
+      body = parse(await write([...messages, { role: "assistant", content: first },
+        { role: "user", content: `This reads as templated because it contains: ${found.join(", ")}. Rewrite without those. Return only the JSON object.` }]));
+    } catch { /* keep the first version */ }
+  }
+  return { followup_subject: subject, followup_body: body, source: "ai" };
 }
 
 async function draftFor(contact, instruction = "") {
@@ -1021,7 +1079,11 @@ async function api(req, res, url) {
     if (!contact) return send(res, 404, { error: "Contact not found." });
 
     if (method === "PUT" && parts.length === 3) {
-      updateContact(id, await readJson(req));
+      const body = await readJson(req);
+      updateContact(id, body);
+      for (const key of ["followup_subject", "followup_body"]) {
+        if (typeof body[key] === "string") db.prepare(`UPDATE contacts SET ${key} = ? WHERE id = ?`).run(body[key].slice(0, 5000), id);
+      }
       return send(res, 200, state());
     }
     if (method === "DELETE" && parts.length === 3) {
@@ -1036,11 +1098,25 @@ async function api(req, res, url) {
       updateContact(id, draft);
       return send(res, 200, { source, warning, ...state() });
     }
+    if (method === "POST" && parts[3] === "followup") {
+      if (!contact.email_body) return send(res, 400, { error: "Write and send the first email before a follow-up." });
+      const n = followupsSent(id) + 1;
+      if (n > MAX_FOLLOWUPS) return send(res, 400, { error: `You have sent ${MAX_FOLLOWUPS} follow-ups. More than that rarely helps; mark them as passed or wait for a reply.` });
+      try {
+        const f = await followupFor(contact, n);
+        db.prepare("UPDATE contacts SET followup_subject = ?, followup_body = ?, updated_at = ? WHERE id = ?").run(f.followup_subject, f.followup_body, now(), id);
+        return send(res, 200, { source: f.source, ...state() });
+      } catch (error) {
+        return send(res, 400, { error: `Follow-up failed (${error.message}).`, ...state() });
+      }
+    }
     if (method === "POST" && parts[3] === "sent") {
       const body = await readJson(req);
       const channel = ["email", "linkedin_note", "linkedin_message", "reply", "meeting", "note"].includes(body.channel)
         ? body.channel : "note";
       logEvent(contact, channel, String(body.summary || "").slice(0, 500));
+      // A sent follow-up is used up; the next one is written fresh.
+      if (/^Follow-up/.test(String(body.summary || ""))) db.prepare("UPDATE contacts SET followup_subject = '', followup_body = '' WHERE id = ?").run(id);
       return send(res, 200, state());
     }
     if (method === "POST" && parts[3] === "find-email") {

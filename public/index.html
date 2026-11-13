@@ -792,6 +792,24 @@ function outreachPanel(c) {
       ${c.email ? "" : `<p class="hint">Add their email under Edit details to open this straight in your mail.</p>`}
       ${S.gmail.connected && c.gmail_draft_at && c.stage !== "Contacted" ? `<p class="hint">Saved to your Gmail drafts on ${fmtDate(c.gmail_draft_at)}. <a href="https://mail.google.com/mail/#drafts" target="_blank" rel="noopener">Open drafts</a> to review and send; this contact moves to Contacted once it is sent.</p>` : ""}
     </div>
+    ${c.last_contacted && c.email_body && !["Replied", "Meeting", "Passed"].includes(c.stage) ? (() => {
+      const sent = S.activity.filter((a) => a.contact_id === c.id && /^Follow-up/.test(a.summary)).length;
+      const n = sent + 1;
+      return `<div class="card">
+      <h3>Follow-up ${n <= 3 ? `${n} of 3` : ""}</h3>
+      ${n > 3 ? `<p class="hint">Three follow-ups sent with no reply. More rarely helps: mark them as passed, or wait.</p>` : `
+      <p class="hint" style="margin:0 0 10px">Shorter than the first email, with one new thing each time. ${daysSince(c.last_contacted)} days since you last wrote.</p>
+      <div class="row" style="margin-top:0"><button class="btn ${c.followup_body ? "" : "primary"}" id="genfu">${c.followup_body ? "Rewrite follow-up" : "Write follow-up"}</button></div>
+      ${c.followup_body ? `
+        <label for="d_followup_subject" style="margin-top:10px">Subject</label><input type="text" id="d_followup_subject" value="${esc(c.followup_subject)}">
+        <label for="d_followup_body" style="margin-top:10px">Body</label><textarea id="d_followup_body" style="min-height:150px">${esc(c.followup_body)}</textarea>
+        <div class="row">
+          <button class="btn small" id="gmailfu" ${c.email ? "" : "disabled"}>Open in Gmail</button>
+          <button class="btn small" id="copyfu">Copy</button>
+          <span class="spacer"></span>
+          <button class="btn small" id="sentfu">Mark follow-up sent</button>
+        </div>` : ""}`}
+    </div>`; })() : ""}
     <div class="card">
       <h3>4. LinkedIn</h3>
       <p class="hint" style="margin:0 0 10px">LinkedIn does not allow tools to send messages for you, so this copies the text and opens their profile. You paste and send.</p>
@@ -909,6 +927,25 @@ function renderDrawer() {
   $("#copynote").onclick = async () => { await copy($("#d_li_note").value, "Note copied"); if (li) window.open(li, "_blank", "noopener"); };
   $("#copymsg").onclick = async () => { await copy($("#d_li_message").value, "Message copied"); if (li) window.open(li, "_blank", "noopener"); };
   const compose = () => ({ to: c.email, su: $("#d_email_subject").value, body: $("#d_email_body").value });
+  // Follow-up card
+  const genfu = $("#genfu");
+  if (genfu) genfu.onclick = async () => {
+    genfu.disabled = true; genfu.textContent = "Writing...";
+    try { await call("POST", `/api/contacts/${c.id}/followup`); notice = ""; }
+    catch (err) { notice = err.message; }
+    render(); renderDrawer();
+  };
+  ["followup_subject", "followup_body"].forEach((k) => { const el = $("#d_" + k); if (el) el.onblur = (e) => saveField(k, e.target.value); });
+  const gmailfu = $("#gmailfu");
+  if (gmailfu) gmailfu.onclick = () => window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(c.email)}&su=${encodeURIComponent($("#d_followup_subject").value)}&body=${encodeURIComponent($("#d_followup_body").value)}`, "_blank", "noopener");
+  const copyfu = $("#copyfu");
+  if (copyfu) copyfu.onclick = () => copy($("#d_followup_body").value, "Follow-up copied");
+  const sentfu = $("#sentfu");
+  if (sentfu) sentfu.onclick = async () => {
+    const n = S.activity.filter((a) => a.contact_id === c.id && /^Follow-up/.test(a.summary)).length + 1;
+    await call("POST", `/api/contacts/${c.id}/sent`, { channel: "email", summary: `Follow-up ${n} sent` });
+    toast("Logged"); render(); renderDrawer();
+  };
   const findemail = $("#findemail");
   if (findemail) findemail.onclick = async () => {
     findemail.disabled = true; findemail.textContent = "Looking...";
