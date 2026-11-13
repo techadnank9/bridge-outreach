@@ -162,6 +162,11 @@ function leadResults() {
 if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "gmail_draft_at")) {
   db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_at TEXT");
 }
+// The Gmail draft this email lives in, so saving again updates it instead of making a second one.
+if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "gmail_draft_id")) {
+  db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_id TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_msg TEXT NOT NULL DEFAULT ''");
+}
 // The next follow-up for someone who has not replied yet.
 if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "followup_body")) {
   db.exec("ALTER TABLE contacts ADD COLUMN followup_subject TEXT NOT NULL DEFAULT ''");
@@ -391,11 +396,17 @@ async function createGmailDraft(contact) {
     "",
     b64(contact.email_body).replace(/(.{76})/g, "$1\r\n"),
   ].join("\r\n");
-  await gmail("drafts", {
-    method: "POST",
-    body: JSON.stringify({ message: { raw: Buffer.from(message, "utf8").toString("base64url") } }),
-  });
-  db.prepare("UPDATE contacts SET gmail_draft_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), contact.id);
+  const payload = JSON.stringify({ message: { raw: Buffer.from(message, "utf8").toString("base64url") } });
+  let draft;
+  if (contact.gmail_draft_id) {
+    // Update the draft saved before; if it was sent or deleted in Gmail since, make a new one.
+    try { draft = await gmail(`drafts/${contact.gmail_draft_id}`, { method: "PUT", body: JSON.stringify({ id: contact.gmail_draft_id, ...JSON.parse(payload) }) }); }
+    catch { draft = null; }
+  }
+  if (!draft) draft = await gmail("drafts", { method: "POST", body: payload });
+  db.prepare("UPDATE contacts SET gmail_draft_at = ?, gmail_draft_id = ?, gmail_draft_msg = ?, updated_at = ? WHERE id = ?")
+    .run(now(), draft.id || "", draft.message?.id || "", now(), contact.id);
+  logEvent(contact, "note", "Saved to Gmail drafts");
 }
 
 const sentToday = () => db.prepare("SELECT count(*) AS n FROM activity WHERE channel = 'email' AND at >= ?").get(today()).n;
@@ -862,28 +873,46 @@ const SLOP = [
   /\bin today's\b/i, /\btouch base\b/i, /\bcircle back\b/i, /\bgroundbreaking\b/i, /\btransformative\b/i,
   /\bjourney\b/i, /\bi wanted to\b/i, /\bmy name is\b/i, /\bperfect fit\b/i, /\blove to connect\b/i, /\bpick your brain\b/i,
   /collaboration opportunity/i, /request for a meeting/i, /respected sir/i, /\bfull[- ]funnel\b/i, /\bend[- ]to[- ]end\b/i,
+  /why i'?m writing/i, /\bwhat we'?re building\b/i, /\bvalue your (read|thoughts)\b/i,
   /—/, /!/,
 ];
 const slopIn = (draft) => [...new Set(SLOP.filter((re) => re.test(Object.values(draft).join(" "))).map((re) => (re.source === "—" ? "em dash" : re.source === "!" ? "exclamation mark" : re.source.replace(/\\b|\\s\?|\(\?:|\)|\\|\[|\]|\?|-/g, " ").replace(/\s+/g, " ").trim())))];
 
+// Built on YC's six-part cold email (subject, opener, what they get, proof, ask, sign-off). The whole email is about the reader.
+// YC's rule: the email is about the reader. Flags a body where the sender talks about themselves as much as about the reader.
+function aboutThem(body = "", c, s) {
+  const text = body.split(/\n\s*\n/).slice(0, -1).join(" ").toLowerCase(); // leave out the sign-off
+  const words = (re) => (text.match(re) || []).length;
+  const esc = (x) => x.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const names = (list) => list.filter((x) => x && x.length > 2).map(esc).join("|");
+  const reader = words(/\b(you|your|you're|you've|yours)\b/g) + (names([c.org, (c.name || "").split(" ")[0]]) ? words(new RegExp(`\\b(${names([c.org, (c.name || "").split(" ")[0]])})\\b`, "g")) : 0);
+  const sender = words(/\b(i|we|our|us|my|i'm|we're|i'd|we've|i've)\b/g) + (names([s.company, "roundtable", "nova"]) ? words(new RegExp(`\\b(${names([s.company, "roundtable", "nova"])})\\b`, "g")) : 0);
+  return sender >= reader ? `more about the sender (${sender} mentions of I/we/our/the company) than about the reader (${reader} mentions of you/your/their name); make it about them` : "";
+}
+
 const DRAFT_SYSTEM = [
   "You write first-touch outreach as the founder, in first person, the way a busy founder actually writes to someone they respect: short, specific, a little informal, clearly typed by a person.",
-  "The reader is an investor, partner, event organiser or community leader who deletes anything that smells like a template. The test of a good message: it could only have been sent to this one person, and replying takes them ten seconds.",
+  "The reader is an investor, partner, event organiser or community leader who deletes anything that smells like a template. The test: it could only have been sent to this one person, it is about them rather than about the sender, and replying takes ten seconds. They should be able to read it in under 60 seconds.",
   "",
-  "How to write it:",
-  "- Open with the specific reason you are writing to them: the warm path if there is one, otherwise the recent thing in why_now if supplied, otherwise the concrete thing in why_they_fit. Never open with who you are, a pleasantry, or a compliment.",
+  "The email is about THEM. Most cold emails list the sender's company and wins instead of the reader's world. Do the opposite: their work, their members, their portfolio, their event, their problem. The sender appears only as the thing that helps with that. Count it: 'you' and 'your' (and their name or organisation) must clearly outnumber 'I', 'we', 'our', 'us' and the sender's company or product names.",
+  "",
+  "Six parts, in this order:",
+  "1. Subject (email_subject): short, specific and about them, like a colleague wrote it: their company, their event, their recent move, or the mutual name. 2 to 6 words, lowercase is fine. Never about the sender ('ai for group decisions' is about the sender; 'your october members dinner' is about them). Never 'collaboration opportunity', 'request for a meeting' or 'quick question'.",
+  "2. Opener: one line that proves you picked them, using their first name: the warm path if there is one, otherwise the recent thing in why_now, otherwise the concrete thing in why_they_fit. It is about what THEY did or care about. Never open with who you are, a pleasantry, a compliment, or why you are writing ('which is why I'm writing to you', 'that's why I'm writing', 'I'm writing because').",
+  "3. What they get: ONE plain sentence, framed as what this reader or their people get, short enough to repeat to someone else. Say what they get, not what the sender is. Not 'thebridge makes roundtable: up to six people with an AI co-host' (that describes the sender) but, for a community lead, 'your members get a focused small-group conversation, with an AI co-host that turns it into next steps'. Never paste or paraphrase the whole pitch; never name more than one product.",
+  "4. Proof: if proof_points are supplied, one sentence with the single point this reader would care most about, ideally tied to their problem. If none are supplied, write no proof sentence at all and never imply traction ('three companies close to what we're building' is vague traction-talk: don't).",
+  "5. The ask: alone on its own line, one small specific next step phrased as a question, easy to say yes to. Prefer offering them something useful and concrete over asking for their time (for example 'Want me to run a free roundtable for five of your members?' beats 'Open to 20 minutes?'). Keep to the intent of the_ask; for an investor a short call can be right, but tie it to them. No menu of options. If booking_link is supplied, put it on its own line straight after the ask, introduced in a few plain words.",
+  "6. Sign-off: on a cold message (no warm path), the sender's first name on one line, then their title and company and one link on the next line, for example 'Adnan' then 'Founder, thebridge · thebridge.ai'. With a warm path, the first name alone is enough. Never a closing phrase like Best or Cheers, never a quote, never more than one link.",
+  "",
+  "Style:",
   "- If how_the_sender_writes is supplied, those are real messages by the sender: match their tone, sentence length, greeting and sign-off habits. Never copy their sentences or facts.",
   "- If first_emails_that_got_replies is supplied, notice what those openers and subjects have in common and lean that way, without copying them.",
-  "- If booking_link is supplied, put it on its own line straight after the ask, introduced in a few plain words.",
-  "- Then ONE plain sentence on what thebridge does, framed as what this reader gets from it, short enough that they could repeat it to someone else. Do not paste or paraphrase the whole pitch; pick the part that matters to this reader.",
-  "- If proof_points are supplied, add one sentence with the single proof point this reader would care most about. If none are supplied, write no proof sentence at all; never imply traction.",
-  "- Put the ask alone on its own line: one small, specific next step phrased as a question, easy to say yes to. No menu of options.",
   "- Use contractions. Mix short and medium sentences. No lists, no bold, no headings, no buzzwords.",
-  "- Sign-off: on a cold message (no warm path), the sender's first name on one line, then their title and company and one link on the next line, for example 'Adnan' then 'Founder, thebridge · thebridge.ai'. With a warm path, the first name alone is enough. Never a closing phrase like Best or Cheers, never a quote, never more than one link.",
   "- Use only the facts supplied. Never invent traction, numbers, mutual connections, or anything about the recipient. If a fact is missing, write around it.",
-  "- Never use: I hope this finds you well, reaching out, I wanted to, my name is, excited, thrilled, passionate, leverage, synergy, seamless, unlock, innovative, cutting-edge, game-changer, journey, perfect fit, pick your brain, circle back, touch base. No em dashes, no exclamation marks.",
+  "- Never use: I hope this finds you well, reaching out, I wanted to, my name is, excited, thrilled, passionate, leverage, synergy, seamless, unlock, innovative, cutting-edge, game-changer, journey, perfect fit, pick your brain, circle back, touch base, what we're building, I'd value your read. No em dashes, no exclamation marks.",
+  "- The LinkedIn note and message follow the same rules: about them first, one line on what they get, one small ask.",
   "",
-  "Lengths: email_subject 2 to 6 words, lowercase is fine, never clickbait. email_body 50 to 110 words including greeting and sign-off. li_note at most 280 characters, no sign-off. li_message under 70 words, for after they accept the connection.",
+  "Lengths: email_body 50 to 110 words including greeting and sign-off. li_note at most 280 characters, no sign-off. li_message under 70 words, for after they accept the connection.",
   "Return only a JSON object with the string keys email_subject, email_body, li_note, li_message.",
 ].join("\n");
 
@@ -973,11 +1002,15 @@ async function aiDraft(c, s, instruction = "") {
   let ask = `Write the outreach for this recipient.\n\n${JSON.stringify(facts, null, 2)}`;
   if (instruction && c.email_body) {
     ask += `\n\nThe current draft is below. Rewrite it: ${instruction}\n\n${JSON.stringify({ email_subject: c.email_subject, email_body: c.email_body, li_note: c.li_note, li_message: c.li_message }, null, 2)}`;
+  } else if (instruction) {
+    ask += `\n\nWhile writing it: ${instruction}`;
   }
   const messages = [{ role: "user", content: ask }];
   const first = await writeWith(messages);
   let draft = parseDraft(first);
   const found = slopIn(draft);
+  const lean = aboutThem(draft.email_body, c, s);
+  if (lean) found.push(lean);
   if (found.length) {
     // One rewrite pass that names exactly what sounded machine-written.
     const second = await writeWith([
@@ -1372,7 +1405,12 @@ async function api(req, res, url) {
     }
     if (method === "POST" && parts[3] === "draft") {
       const body = await readJson(req);
-      const instruction = { warmer: "make it warmer and more personal, same length.", shorter: "make every field noticeably shorter.", plainer: "make it plainer and more direct, like a quick note between peers." }[body.style] || "";
+      const preset = { warmer: "make it warmer and more personal, same length.", shorter: "make every field noticeably shorter.", plainer: "make it plainer and more direct, like a quick note between peers." }[body.style] || "";
+      // The sender's own words about what to change. They outrank the length, tone and format rules above, but never permit inventing facts.
+      const own = String(body.instruction || "").trim().slice(0, 2000);
+      const instruction = own
+        ? `apply the sender's own instructions to every field (subject, email, LinkedIn note, LinkedIn message). Where they conflict with the length, tone or format rules above, the sender's instructions win; still never invent facts, numbers or names, and keep the LinkedIn note under 300 characters. Keep anything they did not ask to change. The sender's instructions: """${own}"""`
+        : preset;
       if (isBlocked(contact)) return send(res, 400, { error: "This contact is on your block list. Remove them from it on the Your pitch page to write to them." });
       const { draft, source, warning } = await draftFor(contact, instruction);
       if (["Research", "Ready"].includes(contact.stage)) db.prepare("UPDATE contacts SET review = 'pending' WHERE id = ?").run(id);

@@ -14,7 +14,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
 import {
-  Sparkles, Send, Mail, Copy, UserRound, Search, Globe, AtSign, Wand2, CheckCheck, CalendarCheck, Ban, Trash2, Save, Telescope,
+  Sparkles, Send, Mail, Copy, UserRound, Search, Globe, AtSign, Wand2, CheckCheck, CalendarCheck, Ban, Trash2, Save, Telescope, Maximize2, ArrowLeft, X, FileText,
 } from "lucide-react";
 import { useApp, safeUrl, linkedinSearch, gmailCompose, copyText, fmtDate, daysSince, followupsSentCount, title, person } from "./data.js";
 import { Grade, Kind, Level, Stage, DreamStar, WhyNow } from "./bits.jsx";
@@ -45,9 +45,13 @@ function Outreach({ c }) {
   const save = (key) => (value) => act("PUT", `/api/contacts/${c.id}`, { [key]: value });
   const fuN = followupsSentCount(S, c.id) + 1;
   const showFollowup = c.last_contacted && c.email_body && !["Replied", "Meeting", "Passed"].includes(c.stage);
-  const write = async (style) => {
-    try { const d = await act("POST", `/api/contacts/${c.id}/draft`, style ? { style } : undefined); setNotice(d.warning || ""); }
-    catch (e) { setNotice(e.message); }
+  const [ask, setAsk] = useState("");
+  const write = async (style, instruction) => {
+    try {
+      const d = await act("POST", `/api/contacts/${c.id}/draft`, instruction ? { instruction } : style ? { style } : undefined);
+      setNotice(d.warning || "");
+      if (instruction && !d.warning) { setAsk(""); toast({ body: "Rewritten with your instructions" }); }
+    } catch (e) { setNotice(e.message); }
   };
   const log = async (channel, summary) => { await act("POST", `/api/contacts/${c.id}/sent`, { channel, summary }); toast({ body: "Logged" }); };
 
@@ -108,6 +112,17 @@ function Outreach({ c }) {
               <Button key={st} size="sm" variant="ghost" icon={<Wand2 size={14} />} label={st[0].toUpperCase() + st.slice(1)} clickAction={() => write(st)} />
             ))}
           </HStack>
+          {S.ai && (
+            <div className="ask-box">
+              <TextArea label="Tell it what to change" rows={3} value={ask} onChange={setAsk}
+                placeholder={'e.g. "Lead with the Nova demo, not the fund. Less formal, no bullet points. Mention we met at SaaStr."'}
+                description="Rewrites the subject, email and both LinkedIn messages together. Your instructions win over the usual length and tone rules." />
+              <HStack gap={2}>
+                <Button variant="primary" size="sm" icon={<Wand2 size={14} />} label={hasDraft ? "Rewrite with this" : "Write with this"}
+                  isDisabled={!ask.trim()} clickAction={() => write("", ask.trim())} />
+              </HStack>
+            </div>
+          )}
           <Text size="xsm" color="secondary">{S.ai ? `Written by ${S.aiModel} from your pitch and this person's details, then checked for phrases that sound machine-written.` : "Built from a template using your pitch and this person's details."} Edits save when you click away.</Text>
           <Field label="Subject" value={c.email_subject} onSave={save("email_subject")} />
           <Field label="Body" value={c.email_body} onSave={save("email_body")} rows={10} />
@@ -116,11 +131,28 @@ function Outreach({ c }) {
               <Button variant="primary" icon={<Send size={14} />} label="Approve and send" isDisabled={!c.email}
                 clickAction={async () => { await act("POST", `/api/contacts/${c.id}/send`, { which: "first", subject: c.email_subject, body: c.email_body }); toast({ body: "Sent from Gmail" }); }} />
             )}
-            <Button size="sm" icon={<Mail size={14} />} label="Open in Gmail" isDisabled={!c.email} href={c.email ? gmailCompose(c.email, c.email_subject, c.email_body) : undefined} />
+            {S.gmail.connected ? (
+              <Button size="sm" variant={c.gmail_draft_at ? "secondary" : "primary"} icon={<FileText size={14} />} label={c.gmail_draft_at ? "Update Gmail draft" : "Save to Gmail drafts"} isDisabled={!c.email || !c.email_body}
+                clickAction={async () => {
+                  try { await act("POST", `/api/contacts/${c.id}/gmail-draft`, { email_subject: c.email_subject, email_body: c.email_body }); toast({ body: "Saved in your Gmail drafts" }); }
+                  catch (e) { setNotice(e.message); }
+                }} />
+            ) : (
+              <Button size="sm" icon={<Mail size={14} />} label="Open in Gmail" isDisabled={!c.email} href={c.email ? gmailCompose(c.email, c.email_subject, c.email_body) : undefined} />
+            )}
             <Button size="sm" icon={<Copy size={14} />} label="Copy" onClick={() => copyText(`${c.email_subject}\n\n${c.email_body}`, toast, "Email copied")} />
             <span style={{ flex: 1 }} />
             <Button size="sm" variant="ghost" icon={<CheckCheck size={14} />} label="Mark email sent" clickAction={() => log("email")} />
           </HStack>
+          {c.gmail_draft_at && (
+            <HStack gap={2} vAlign="center" wrap="wrap" className="in-drafts">
+              <Badge variant="success" label="In Gmail drafts" />
+              <Text size="xsm" color="secondary">Saved {fmtDate(c.gmail_draft_at)}. Edits here need "Update Gmail draft" to reach it.</Text>
+              <Button size="sm" variant="ghost" icon={<Mail size={14} />} label="Open draft"
+                href={c.gmail_draft_msg ? `https://mail.google.com/mail/u/0/#drafts?compose=${c.gmail_draft_msg}` : "https://mail.google.com/mail/u/0/#drafts"} />
+            </HStack>
+          )}
+          {!S.gmail.connected && c.email && <Text size="xsm" color="secondary">Connect Gmail on Your pitch to save this straight into your Gmail drafts instead of opening a compose window.</Text>}
           {!c.email && <Text size="sm" color="secondary">Add their email under Details to open this straight in your mail.</Text>}
         </VStack>
       </Card>
@@ -247,11 +279,37 @@ function History({ c }) {
   );
 }
 
-export function Record({ id, tab: initialTab = "outreach", onClose }) {
-  const { S, act } = useApp();
+function useRecord(id, initialTab) {
+  const { S } = useApp();
   const [tab, setTab] = useState(initialTab);
   useEffect(() => setTab(initialTab), [id, initialTab]);
-  const c = S.contacts.find((x) => x.id === id);
+  return { c: S.contacts.find((x) => x.id === id), tab, setTab };
+}
+
+function Meta({ c, tab, setTab }) {
+  return (
+    <div className="drawer-meta">
+      <HStack gap={1.5} wrap="wrap"><Kind kind={c.kind} /><Stage stage={c.stage} /><Level rating={c.rating} /></HStack>
+      <TabList value={tab} onChange={setTab} size="sm" hasDivider>
+        <Tab value="outreach" label="Outreach" />
+        <Tab value="details" label="Details" />
+        <Tab value="activity" label="History" />
+      </TabList>
+    </div>
+  );
+}
+
+function Body({ c, tab, onClose }) {
+  return tab === "details" ? <Details c={c} onClose={onClose} /> : tab === "activity" ? <History c={c} /> : <Outreach c={c} />;
+}
+
+function Lead({ c }) {
+  const { act } = useApp();
+  return <HStack gap={1} vAlign="center"><DreamStar item={c} onToggle={() => act("POST", `/api/contacts/${c.id}/dream`, { dream: !c.dream })} /><Avatar name={c.name || title(c)} size="md" tooltip={false} /></HStack>;
+}
+
+export function Record({ id, tab: initialTab = "outreach", onClose, onExpand }) {
+  const { c, tab, setTab } = useRecord(id, initialTab);
   if (!c) return null;
   return (
     <Drawer isOpen onOpenChange={(o) => !o && onClose()} label={title(c)} side="end" width={560} hasScrim={false} padding={0}>
@@ -259,20 +317,33 @@ export function Record({ id, tab: initialTab = "outreach", onClose }) {
         title={title(c)}
         subtitle={person(c) || c.kind}
         onOpenChange={(o) => !o && onClose()}
-        startContent={<HStack gap={1} vAlign="center"><DreamStar item={c} onToggle={() => act("POST", `/api/contacts/${c.id}/dream`, { dream: !c.dream })} /><Avatar name={c.name || title(c)} size="md" tooltip={false} /></HStack>}
+        startContent={<Lead c={c} />}
+        endContent={<Button size="sm" variant="ghost" icon={<Maximize2 size={14} />} label="Open full page" clickAction={() => onExpand(tab)} />}
         hasDivider={false}
       />
-      <div className="drawer-meta">
-        <HStack gap={1.5} wrap="wrap"><Kind kind={c.kind} /><Stage stage={c.stage} /><Level rating={c.rating} /></HStack>
-        <TabList value={tab} onChange={setTab} size="sm" hasDivider>
-          <Tab value="outreach" label="Outreach" />
-          <Tab value="details" label="Details" />
-          <Tab value="activity" label="History" />
-        </TabList>
-      </div>
-      <div className="drawer-body">
-        {tab === "details" ? <Details c={c} onClose={onClose} /> : tab === "activity" ? <History c={c} /> : <Outreach c={c} />}
-      </div>
+      <Meta c={c} tab={tab} setTab={setTab} />
+      <div className="drawer-body"><Body c={c} tab={tab} onClose={onClose} /></div>
     </Drawer>
+  );
+}
+
+// The same record as a page of its own, with room to read the research and drafts side by side.
+export function RecordPage({ id, tab: initialTab = "outreach", onClose, onBack }) {
+  const { c, tab, setTab } = useRecord(id, initialTab);
+  if (!c) return <Text color="secondary">This lead is no longer in your pipeline.</Text>;
+  return (
+    <div className="record-page">
+      <HStack gap={2} vAlign="center" wrap="wrap" className="record-page__bar">
+        <Button size="sm" variant="ghost" icon={<ArrowLeft size={14} />} label="Back" clickAction={onBack} />
+        <span style={{ flex: 1 }} />
+        <Button size="sm" variant="ghost" icon={<X size={14} />} label="Close" clickAction={onClose} />
+      </HStack>
+      <HStack gap={3} vAlign="center" className="record-page__head">
+        <Lead c={c} />
+        <VStack gap={0.5}><Heading level={2}>{title(c)}</Heading><Text color="secondary">{person(c) || c.kind}</Text></VStack>
+      </HStack>
+      <Meta c={c} tab={tab} setTab={setTab} />
+      <div className="record-page__body"><Body c={c} tab={tab} onClose={onClose} /></div>
+    </div>
   );
 }

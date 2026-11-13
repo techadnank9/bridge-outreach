@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Card } from "@astryxdesign/core/Card";
@@ -9,7 +9,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Code } from "@astryxdesign/core/Code";
-import { Save, Mail, Unplug } from "lucide-react";
+import { Mail, Unplug, Check, Loader2 } from "lucide-react";
 import { useApp } from "../data.js";
 
 export function Pitch() {
@@ -18,12 +18,27 @@ export function Pitch() {
   const set = (k) => (v) => setS2((prev) => ({ ...prev, [k]: v }));
   const line = (k, label, description) => <TextInput label={label} value={s[k] || ""} onChange={set(k)} description={description} />;
   const area = (k, label, description, rows = 3) => <TextArea label={label} value={s[k] || ""} onChange={set(k)} description={description} rows={rows} />;
-  const save = async () => { await act("PUT", "/api/settings", s); toast({ body: "Saved" }); };
+  // Every change saves itself a moment after you stop typing; no Save button to scroll to.
+  const [status, setStatus] = useState("saved");
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    setStatus("saving");
+    const t = setTimeout(async () => {
+      try { await act("PUT", "/api/settings", s); setStatus("saved"); } catch { setStatus("failed"); }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [s, act]);
 
   return (
     <VStack gap={5} style={{ maxWidth: 880 }}>
       <VStack gap={1}>
-        <Heading level={1}>Your pitch</Heading>
+        <HStack gap={3} vAlign="center" wrap="wrap">
+          <Heading level={1}>Your pitch</Heading>
+          <span className={`autosave autosave--${status}`}>
+            {status === "saving" ? <><Loader2 size={13} className="spin" /> Saving…</> : status === "failed" ? "Not saved, check your connection" : <><Check size={13} /> All changes saved</>}
+          </span>
+        </HStack>
         <Text color="secondary">Every draft is built from what you write here plus what you know about the person. The more specific this is, the less each draft needs editing.</Text>
       </VStack>
 
@@ -62,8 +77,6 @@ export function Pitch() {
         <div style={{ width: 260 }}><NumberInput label="Automatic work per day" value={Number(s.daily_research_cap) || 0} min={0} onChange={(v) => set("daily_research_cap")(String(v ?? 0))}
           description="How many leads a day can be researched, looked up and drafted automatically (about $0.10 to $0.20 each). 0 turns it off." /></div>
       </VStack></Card>
-
-      <HStack><Button variant="primary" icon={<Save size={16} />} label="Save" clickAction={save} /></HStack>
 
       <Card padding={5}><VStack gap={3}>
         <HStack gap={2} vAlign="center"><Mail size={18} /><Heading level={3}>Gmail</Heading>

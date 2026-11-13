@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
-import { SideNav, SideNavHeading, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
+import { SideNav, SideNavHeading, SideNavItem, SideNavSection, SideNavCollapseButton } from "@astryxdesign/core/SideNav";
 import { NavIcon } from "@astryxdesign/core/NavIcon";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -21,7 +21,7 @@ import { Followups } from "./pages/Followups.jsx";
 import { Insights } from "./pages/Insights.jsx";
 import { Import } from "./pages/Import.jsx";
 import { Pitch } from "./pages/Pitch.jsx";
-import { Record } from "./Record.jsx";
+import { Record, RecordPage } from "./Record.jsx";
 
 const PAGES = { today: Today, pipeline: Pipeline, find: Find, leads: Leads, followups: Followups, insights: Insights, import: Import, settings: Pitch };
 
@@ -53,6 +53,17 @@ export function App() {
 
   const go = (next) => { setOpened(null); setView(next); };
   const open = useCallback((id, tab = "outreach") => setOpened({ id, tab }), []);
+  // Any link to another site opens in a new tab, so this page stays where it was.
+  useEffect(() => {
+    const onClick = (e) => {
+      const a = e.target.closest?.("a[href]");
+      if (!a || a.origin === location.origin || a.protocol === "javascript:") return;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, []);
   const ctx = useMemo(() => ({ S, setS, act, refresh, toast, go, open, openId: opened?.id }), [S, act, refresh, toast, open, opened]);
 
   if (!S) {
@@ -83,13 +94,16 @@ export function App() {
         contentPadding={0}
         sideNav={
           <SideNav
-            collapsible
+            collapsible={{ hasButton: false }}
             header={
-              <SideNavHeading
-                heading="Bridge Outreach"
-                subheading="Investors, partners, conferences, communities"
-                icon={<NavIcon icon={<Icon icon={Orbit} size="sm" />} />}
-              />
+              <div className="nav-head">
+                <SideNavHeading
+                  heading="Bridge Outreach"
+                  subheading="Investors, partners, conferences, communities"
+                  icon={<NavIcon icon={<Icon icon={Orbit} size="sm" />} />}
+                />
+                <SideNavCollapseButton />
+              </div>
             }
             footer={
               <SideNavSection title="Status" isHeaderHidden>
@@ -111,10 +125,12 @@ export function App() {
           </SideNav>
         }>
         <div className="page">
-          <Page />
+          {opened?.full
+            ? <RecordPage id={opened.id} tab={opened.tab} onClose={() => setOpened(null)} onBack={() => setOpened({ ...opened, full: false })} />
+            : <Page />}
         </div>
       </AppShell>
-      {opened && <Record id={opened.id} tab={opened.tab} onClose={() => setOpened(null)} />}
+      {opened && !opened.full && <Record id={opened.id} tab={opened.tab} onClose={() => setOpened(null)} onExpand={(tab) => setOpened({ ...opened, tab, full: true })} />}
     </AppContext.Provider>
   );
 }
