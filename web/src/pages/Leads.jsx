@@ -14,6 +14,7 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import { Users, Plus, Trash2, Search, UserRound, Globe, Maximize2, ArrowLeft, X, ArrowRight } from "lucide-react";
 import { useApp, inPipeline, fmtDate, safeUrl, KIND_LABEL, linkedinSearch } from "../data.js";
 import { Grade, Kind, Level, DreamStar } from "../bits.jsx";
+import { LabelsLegend } from "../bits.jsx";
 
 const CATEGORIES = ["Decision maker", "Influencer", "Contact", "Firm only"];
 
@@ -162,6 +163,7 @@ export function Leads() {
       <VStack gap={1}>
         <Heading level={1}>All leads</Heading>
         <Text color="secondary">Everyone your searches have found, kept here so nothing is lost. Open a lead to see who they are and why they fit, then add the ones worth writing to your pipeline, where their email is found and the first draft is written.</Text>
+        <LabelsLegend />
       </VStack>
 
       <HStack gap={3} vAlign="center" wrap="wrap">

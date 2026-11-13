@@ -10,6 +10,7 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import { Plus, Download, Users, RefreshCw, Search } from "lucide-react";
 import { useApp, KIND_LABEL, daysSince, title, person } from "../data.js";
 import { Grade, Kind, Level, Stage, DreamStar } from "../bits.jsx";
+import { LabelsLegend } from "../bits.jsx";
 
 export function ContactTable({ list }) {
   const { act, open } = useApp();
@@ -73,6 +74,7 @@ export function Pipeline() {
         <VStack gap={1} style={{ flex: 1, minWidth: 260 }}>
           <Heading level={1}>Pipeline</Heading>
           <Text color="secondary">Everyone you want to reach. Open a row to find the right person, draft the email and LinkedIn message, and log what you sent.</Text>
+        <LabelsLegend />
         </VStack>
         <HStack gap={2}>
           {S.gmail.connected && <Button label="Check Gmail" icon={<RefreshCw size={16} />} clickAction={async () => {

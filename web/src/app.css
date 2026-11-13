@@ -124,3 +124,22 @@ body { font-family: var(--font-family-body, "Figtree", system-ui, sans-serif); }
 /* Lead panel header: breathing room from the panel's edges (the panel itself has no padding) */
 dialog.astryx-drawer .astryx-drawer-header { padding: 18px 16px 6px 22px; }
 @media (max-width: 560px) { dialog.astryx-drawer .astryx-drawer-header { padding: 14px 12px 4px 16px; } }
+
+/* Hover explanations for scores and tiers */
+.tip { max-width: 300px; display: grid; gap: 6px; font-size: 12.5px; line-height: 1.45; }
+.tip-title { font-weight: 600; }
+.tip-list { margin: 0; padding-left: 16px; }
+.tip-foot { opacity: 0.75; }
+.level-wrap { display: inline-flex; cursor: help; }
+.grade { cursor: help; }
+
+/* "What do the labels mean?" on Pipeline and All leads */
+.legend { margin-top: 6px; font-size: 13px; }
+.legend summary { cursor: pointer; color: #9db8ff; width: fit-content; list-style: none; }
+.legend summary::-webkit-details-marker { display: none; }
+.legend summary::before { content: "ⓘ "; }
+.legend-body { display: grid; gap: 10px; margin-top: 10px; padding: 14px; border-radius: 10px; background: rgb(255 255 255 / 0.03); border: 1px solid rgb(255 255 255 / 0.07); max-width: 760px; }
+.legend-row { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: center; }
+.legend-badge { display: inline-flex; }
+.legend-star { color: #f0c24b; fill: #f0c24b; }
+@media (max-width: 560px) { .legend-row { grid-template-columns: 1fr; gap: 4px; } }
