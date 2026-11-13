@@ -28,6 +28,9 @@ export function ContactTable({ list }) {
     ) },
     { key: "score", header: "Score", width: pixel(170), renderCell: (c) => <HStack gap={1.5} vAlign="center"><Grade rating={c.rating} /><Level rating={c.rating} /></HStack> },
     { key: "kind", header: "Type", width: pixel(120), renderCell: (c) => <Kind kind={c.kind} /> },
+    { key: "email", header: "Email", width: proportional(1.3, { minWidth: 170 }), renderCell: (c) => c.email
+      ? <Text size="sm" maxLines={1}>{c.email}</Text>
+      : <Text size="sm" color="secondary">{c.person_checked_at || !(c.linkedin || c.name) ? "Not found" : "Looking up…"}</Text> },
     { key: "fit", header: "Why they fit", width: proportional(2, { minWidth: 160 }), renderCell: (c) => <Text size="sm" color="secondary" maxLines={2}>{c.why_now || c.fit}</Text> },
     { key: "have", header: "Have", width: pixel(150), renderCell: (c) => (
       <HStack gap={1}>

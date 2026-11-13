@@ -75,7 +75,7 @@ export function Pitch() {
         <Heading level={3}>Automation</Heading>
         {area("block_list", "Block list", "One per line: a firm, a person, an email address or a website. They are left out of searches and never researched or drafted.", 4)}
         <div style={{ width: 260 }}><NumberInput label="Automatic work per day" value={Number(s.daily_research_cap) || 0} min={0} onChange={(v) => set("daily_research_cap")(String(v ?? 0))}
-          description="How many leads a day can be researched, looked up and drafted automatically (about $0.10 to $0.20 each). 0 turns it off." /></div>
+          description="How many leads a day can be researched, looked up and drafted automatically. 0 turns it off." /></div>
       </VStack></Card>
 
       <Card padding={5}><VStack gap={3}>

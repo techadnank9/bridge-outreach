@@ -167,6 +167,13 @@ if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === 
   db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_id TEXT NOT NULL DEFAULT ''");
   db.exec("ALTER TABLE contacts ADD COLUMN gmail_draft_msg TEXT NOT NULL DEFAULT ''");
 }
+// What the automatic person lookup found: their headline, where they are, earlier roles, and when it was tried.
+if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "person_checked_at")) {
+  db.exec("ALTER TABLE contacts ADD COLUMN person_checked_at TEXT");
+  db.exec("ALTER TABLE contacts ADD COLUMN headline TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE contacts ADD COLUMN location TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE contacts ADD COLUMN past_roles TEXT NOT NULL DEFAULT ''");
+}
 // The next follow-up for someone who has not replied yet.
 if (!db.prepare("PRAGMA table_info(contacts)").all().some((col) => col.name === "followup_body")) {
   db.exec("ALTER TABLE contacts ADD COLUMN followup_subject TEXT NOT NULL DEFAULT ''");
@@ -583,8 +590,11 @@ async function findInvestors({ query, count, earlyOnly }) {
   let people = [];
   let warning = "";
   try {
+    // Up to two partners per firm, 25 people per page: read as many pages as the firm count needs.
+    const pages = Math.max(1, Math.ceil((firms.length * 2) / 25));
+    for (let page = 1; page <= pages; page++) {
     const peopleSearch = await lookup("prospeo", "/search-person", {
-      page: 1,
+      page,
       filters: {
         company: { websites: { include: firms.map((f) => f.domain).filter(Boolean) } },
         // "Partner" also matches partnerships and channel roles, which are not investors.
@@ -597,7 +607,10 @@ async function findInvestors({ query, count, earlyOnly }) {
       },
     });
     charge += peopleSearch.charge;
-    people = peopleSearch.output.results || [];
+    const got = peopleSearch.output.results || [];
+    people.push(...got);
+    if (got.length < 25) break;
+    }
   } catch (error) {
     warning = `Found the firms, but the people search failed (${error.message}). Firms are listed without a contact.`;
   }
@@ -614,26 +627,99 @@ async function findInvestors({ query, count, earlyOnly }) {
 }
 
 // Partners, conferences and communities: people with a given role at organisations described by keywords.
-async function findPeople({ kind, keywords, titles }) {
-  const search = await lookup("prospeo", "/search-person", {
-    page: 1,
-    filters: {
-      company_keywords: { include: keywords, include_all: false },
-      person_job_title: { include: titles, match_mode: "CONTAINS" },
-      max_person_per_company: 1,
-    },
-  });
-  return { rows: (search.output.results || []).map((r) => personRow(kind, r)), charge: search.charge, warning: "" };
+async function findPeople({ kind, keywords, titles, count = 25 }) {
+  // 25 people per page; read pages until the count is reached or results run out.
+  const rows = [];
+  let charge = 0;
+  let warning = "";
+  for (let page = 1; rows.length < count && page <= Math.ceil(count / 25); page++) {
+    try {
+      const search = await lookup("prospeo", "/search-person", {
+        page,
+        filters: {
+          company_keywords: { include: keywords, include_all: false },
+          person_job_title: { include: titles, match_mode: "CONTAINS" },
+          max_person_per_company: 1,
+        },
+      });
+      charge += search.charge;
+      const got = search.output.results || [];
+      rows.push(...got.map((r) => personRow(kind, r)));
+      if (got.length < 25) break;
+    } catch (error) {
+      if (!rows.length) throw error;
+      warning = `Stopped after ${rows.length} results (${error.message}).`;
+      break;
+    }
+  }
+  return { rows: rows.slice(0, count), charge, warning };
 }
 
 async function findEmail(contact) {
   const input = contact.linkedin
     ? { linkedin_url: contact.linkedin.startsWith("http") ? contact.linkedin : `https://${contact.linkedin}` }
     : { full_name: contact.name, ...(contact.website ? { company_website: rootDomain(contact.website) } : { company_name: contact.org }) };
-  const result = await lookup("prospeo", "/enrich-person", input);
-  const email = result.output.person?.email?.email || "";
-  return { email: EMAIL_PATTERN.test(email) ? email : "", charge: result.charge };
+  let result;
+  try { result = await lookup("prospeo", "/enrich-person", input); }
+  catch (error) {
+    // No match is not a failure: the person just is not in the index.
+    if (/no.?match|not found/i.test(error.message)) return { email: "", charge: 0, person: {} };
+    throw error;
+  }
+  const p = result.output.person || {};
+  const email = p.email?.email || "";
+  const loc = p.location || {};
+  const person = {
+    linkedin: p.linkedin_url || "",
+    headline: tidy(p.headline, 160),
+    location: [loc.city, loc.country].filter(Boolean).join(", "),
+    past_roles: (p.job_history || []).filter((j) => !j.current && j.title && j.company_name).slice(0, 4)
+      .map((j) => `${tidy(j.title, 60)}, ${tidy(j.company_name, 60)}${j.start_year ? ` (${j.start_year}${j.end_year ? `–${j.end_year}` : ""})` : ""}`).join("\n"),
+  };
+  return { email: EMAIL_PATTERN.test(email) ? email : "", charge: result.charge, person };
 }
+
+// Every lead with a named person gets one lookup: their email, LinkedIn profile and a few details. Tried once per lead.
+async function lookUpPerson(id) {
+  const c = getContact(id);
+  if (!c || c.person_checked_at || !leadsEnabled || isBlocked(c)) return;
+  if (!c.linkedin && !(c.name && (c.website || c.org))) return;
+  db.prepare("UPDATE contacts SET person_checked_at = ? WHERE id = ?").run(now(), id);
+  let found;
+  try { found = await findEmail(c); }
+  catch (error) {
+    // A failed lookup is tried again on the next background pass; only a real "no match" counts as checked.
+    db.prepare("UPDATE contacts SET person_checked_at = NULL WHERE id = ?").run(id);
+    throw error;
+  }
+  const { email, person } = found;
+  const patch = {};
+  if (email && !c.email) patch.email = email;
+  if (person.linkedin && !c.linkedin) patch.linkedin = person.linkedin;
+  if (Object.keys(patch).length) updateContact(id, patch);
+  db.prepare("UPDATE contacts SET headline = ?, location = ?, past_roles = ?, email_available = ? WHERE id = ?")
+    .run(person.headline || "", person.location || "", person.past_roles || "", email ? 1 : c.email_available ? 1 : 0, id);
+  if (email && !c.email) logEvent(getContact(id), "note", "Email found");
+}
+
+const personQueue = {
+  queue: [],
+  running: false,
+  enqueue(id) {
+    if (!this.queue.includes(id)) this.queue.push(id);
+    this.run();
+  },
+  async run() {
+    if (this.running) return;
+    this.running = true;
+    try {
+      while (this.queue.length) {
+        const id = this.queue.shift();
+        try { await lookUpPerson(id); } catch (error) { console.log(`person lookup ${id}: ${error.message}`); }
+      }
+    } finally { this.running = false; }
+  },
+};
 
 const splitList = (value, max) =>
   String(value || "").split(/[,\n]/).map((s) => tidy(s, 60)).filter(Boolean).slice(0, max);
@@ -679,7 +765,7 @@ async function leadRoutes(req, res, parts) {
   if (parts[2] === "investors") {
     const query = tidy(body.query, 300);
     if (query.length < 8) return send(res, 400, { error: "Describe what your company does in a few words." });
-    const count = [5, 10, 20].includes(Number(body.count)) ? Number(body.count) : 5;
+    const count = Math.min(100, Math.max(1, Math.round(Number(body.count)) || 10));
     const result = await findInvestors({ query, count, earlyOnly: body.earlyOnly !== false });
     result.rows = (result.rows || []).filter((r) => !isBlocked(r));
     if (result.rows?.length) {
@@ -693,10 +779,11 @@ async function leadRoutes(req, res, parts) {
     const titles = splitList(body.titles, 8);
     if (!keywords.length || !titles.length) return send(res, 400, { error: "Add at least one keyword and one role." });
     const kind = ["conference", "community"].includes(body.kind) ? body.kind : "partner";
-    const result = await findPeople({ kind, keywords, titles });
+    const count = Math.min(250, Math.max(1, Math.round(Number(body.count)) || 25));
+    const result = await findPeople({ kind, keywords, titles, count });
     result.rows = (result.rows || []).filter((r) => !isBlocked(r));
     if (result.rows?.length) {
-      saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", ") });
+      saveLeadResults(kind, result.rows, { keywords: keywords.join(", "), titles: titles.join(", "), count });
       storeLeads(result.rows, `${keywords.join(", ")} · ${titles.join(", ")}`);
     }
     return send(res, 200, { ...result, leadResults: leadResults(), allLeads: state().allLeads });
@@ -1159,6 +1246,7 @@ const autopilot = {
   queue: [],
   running: false,
   enqueue(id) {
+    personQueue.enqueue(id);
     if (!this.queue.includes(id)) this.queue.push(id);
     this.run();
   },
@@ -1181,13 +1269,6 @@ const autopilot = {
     logAuto(id, "pipeline");
     if (!c.researched_at && AI_PROVIDER === "anthropic" && researchedToday() < researchCap()) {
       await researchContact(c);
-      c = getContact(id);
-    }
-    if (rate(c).level === 1 && !c.email && leadsEnabled && (c.linkedin || c.name)) {
-      try {
-        const { email } = await findEmail(c);
-        if (email) { updateContact(id, { email }); db.prepare("UPDATE contacts SET email_available = 1 WHERE id = ?").run(id); }
-      } catch { /* drafting still goes ahead without an email */ }
       c = getContact(id);
     }
     if (!c.email_body && aiEnabled) {
@@ -1495,6 +1576,12 @@ async function api(req, res, url) {
       }
       return send(res, 200, { found: Boolean(email), charge, ...state() });
     }
+    // Opened in Gmail's compose window (no Gmail connection): Gmail itself keeps it as a draft.
+    if (method === "POST" && parts[3] === "gmail-opened") {
+      db.prepare("UPDATE contacts SET gmail_draft_at = ?, gmail_draft_id = '', gmail_draft_msg = '', updated_at = ? WHERE id = ?").run(now(), now(), id);
+      logEvent(contact, "note", "Opened as a Gmail draft");
+      return send(res, 200, state());
+    }
     if (method === "POST" && parts[3] === "gmail-draft") {
       const body = await readJson(req);
       const saved = updateContact(id, { email_subject: body.email_subject, email_body: body.email_body });
@@ -1609,6 +1696,10 @@ async function tick() {
       const f = await followupFor(c, n);
       db.prepare("UPDATE contacts SET followup_subject = ?, followup_body = ?, review = 'pending', updated_at = ? WHERE id = ?").run(f.followup_subject, f.followup_body, now(), c.id);
     } catch (error) { console.log(`follow-up for ${c.id}: ${error.message}`); }
+  }
+  // Leads that have not had their email and LinkedIn looked up yet, including ones added before this existed.
+  for (const c of db.prepare("SELECT id FROM contacts WHERE person_checked_at IS NULL AND (email = '' OR linkedin = '') AND stage NOT IN ('Passed')").all()) {
+    personQueue.enqueue(c.id);
   }
   for (const c of db.prepare("SELECT * FROM contacts WHERE stage IN ('Research', 'Ready') AND email_body = '' AND review != 'dismissed'").all()) {
     if (rate(c).level <= 2) autopilot.enqueue(c.id);

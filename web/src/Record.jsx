@@ -82,20 +82,41 @@ function Outreach({ c }) {
 
       <Card padding={4}>
         <VStack gap={2}>
-          <Heading level={4}>1. Find the right person</Heading>
+          <Heading level={4}>1. The person</Heading>
           <Text>{c.name ? `${c.name}${c.role ? ", " + c.role : ""} at ${c.org || "their organisation"}` : `No person recorded yet for ${title(c)}.`}</Text>
-          <HStack gap={2} wrap="wrap">
-            {li && <Button size="sm" icon={<UserRound size={14} />} label="Open LinkedIn profile" href={li} />}
-            <Button size="sm" icon={<Search size={14} />} label={c.name ? "Search LinkedIn for them" : "Search LinkedIn for who to contact"} href={linkedinSearch(c)} />
-            {site && <Button size="sm" icon={<Globe size={14} />} label="Website" href={site} />}
-            {!c.email && S.leads.enabled && (c.linkedin || c.name) && (
-              <Button size="sm" icon={<AtSign size={14} />} label={`Find email · $${Number(S.leads.pricePerLookup).toFixed(2)}`} clickAction={async () => {
-                const d = await act("POST", `/api/contacts/${c.id}/find-email`);
-                if (d.found) toast({ body: `Email found. Charged $${Number(d.charge).toFixed(2)}.` });
-                else setNotice("No verified email was found for this person, so nothing was charged.");
-              }} />
-            )}
-          </HStack>
+          {c.headline && c.headline !== c.role && <Text size="sm" color="secondary">{c.headline}</Text>}
+
+          <dl className="person-facts">
+            <dt>Email</dt>
+            <dd>
+              {c.email ? (
+                <HStack gap={1.5} vAlign="center">
+                  <a href={`mailto:${c.email}`} className="person-email">{c.email}</a>
+                  <Button size="sm" variant="ghost" icon={<Copy size={13} />} label="Copy email" isIconOnly onClick={() => copyText(c.email, toast, "Email copied")} />
+                </HStack>
+              ) : !c.person_checked_at && S.leads.enabled && (c.linkedin || c.name) ? (
+                <Text size="sm" color="secondary">Looking it up…</Text>
+              ) : (
+                <Text size="sm" color="secondary">No verified email found. Add one under Details if you have it.</Text>
+              )}
+            </dd>
+            <dt>LinkedIn</dt>
+            <dd>
+              {li ? (
+                <Button size="sm" icon={<UserRound size={14} />} label="Open LinkedIn profile" href={li} />
+              ) : !c.person_checked_at && S.leads.enabled && c.name ? (
+                <Text size="sm" color="secondary">Looking it up…</Text>
+              ) : (
+                <HStack gap={2} vAlign="center" wrap="wrap">
+                  <Text size="sm" color="secondary">{c.name ? "We couldn't find their profile." : "No person yet."}</Text>
+                  <Button size="sm" variant="ghost" icon={<Search size={14} />} label={c.name ? "Search LinkedIn" : "Search LinkedIn for who to contact"} href={linkedinSearch(c)} />
+                </HStack>
+              )}
+            </dd>
+            {c.location && <><dt>Based in</dt><dd><Text size="sm">{c.location}</Text></dd></>}
+            {c.past_roles && <><dt>Before</dt><dd><Text size="sm">{c.past_roles.split("\n").map((r) => <span key={r} className="person-role">{r}</span>)}</Text></dd></>}
+            {site && <><dt>Website</dt><dd><Button size="sm" variant="ghost" icon={<Globe size={14} />} label={site.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")} href={site} /></dd></>}
+          </dl>
           {!c.fit && <Text size="sm" color="secondary">Add a line under "Why they fit" before drafting. Without it the message will read as generic.</Text>}
         </VStack>
       </Card>
@@ -138,7 +159,12 @@ function Outreach({ c }) {
                   catch (e) { setNotice(e.message); }
                 }} />
             ) : (
-              <Button size="sm" icon={<Mail size={14} />} label="Open in Gmail" isDisabled={!c.email} href={c.email ? gmailCompose(c.email, c.email_subject, c.email_body) : undefined} />
+              // Without a Gmail connection: open Gmail's compose window filled in. Gmail keeps it in Drafts once it is closed.
+              <Button size="sm" variant={c.gmail_draft_at ? "secondary" : "primary"} icon={<FileText size={14} />} label={c.gmail_draft_at ? "Open as Gmail draft again" : "Open as Gmail draft"} isDisabled={!c.email || !c.email_body}
+                clickAction={() => {
+                  window.open(gmailCompose(c.email, c.email_subject, c.email_body), "_blank", "noopener");
+                  act("POST", `/api/contacts/${c.id}/gmail-opened`).catch(() => {});
+                }} />
             )}
             <Button size="sm" icon={<Copy size={14} />} label="Copy" onClick={() => copyText(`${c.email_subject}\n\n${c.email_body}`, toast, "Email copied")} />
             <span style={{ flex: 1 }} />
@@ -146,13 +172,16 @@ function Outreach({ c }) {
           </HStack>
           {c.gmail_draft_at && (
             <HStack gap={2} vAlign="center" wrap="wrap" className="in-drafts">
-              <Badge variant="success" label="In Gmail drafts" />
-              <Text size="xsm" color="secondary">Saved {fmtDate(c.gmail_draft_at)}. Edits here need "Update Gmail draft" to reach it.</Text>
-              <Button size="sm" variant="ghost" icon={<Mail size={14} />} label="Open draft"
+              <Badge variant="success" label={c.gmail_draft_id ? "In Gmail drafts" : "Opened as a Gmail draft"} />
+              <Text size="xsm" color="secondary">
+                {c.gmail_draft_id
+                  ? `Saved ${fmtDate(c.gmail_draft_at)}. Edits here need "Update Gmail draft" to reach it.`
+                  : `${fmtDate(c.gmail_draft_at)}. Close the Gmail window without sending and it stays in your Drafts. Edits made here after that need opening again.`}
+              </Text>
+              <Button size="sm" variant="ghost" icon={<Mail size={14} />} label="Go to Drafts"
                 href={c.gmail_draft_msg ? `https://mail.google.com/mail/u/0/#drafts?compose=${c.gmail_draft_msg}` : "https://mail.google.com/mail/u/0/#drafts"} />
             </HStack>
           )}
-          {!S.gmail.connected && c.email && <Text size="xsm" color="secondary">Connect Gmail on Your pitch to save this straight into your Gmail drafts instead of opening a compose window.</Text>}
           {!c.email && <Text size="sm" color="secondary">Add their email under Details to open this straight in your mail.</Text>}
         </VStack>
       </Card>

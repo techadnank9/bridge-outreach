@@ -5,26 +5,45 @@ import { Card } from "@astryxdesign/core/Card";
 import { Button } from "@astryxdesign/core/Button";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { Selector } from "@astryxdesign/core/Selector";
+import { Slider } from "@astryxdesign/core/Slider";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Switch } from "@astryxdesign/core/Switch";
 import { TabList, Tab } from "@astryxdesign/core/TabList";
 import { Banner } from "@astryxdesign/core/Banner";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Table, proportional, pixel } from "@astryxdesign/core/Table";
-import { Sparkles, SearchX, Plus, Eraser } from "lucide-react";
+import { Sparkles, SearchX, Plus } from "lucide-react";
 import { useApp, call, fmtDate, inPipeline, safeUrl } from "../data.js";
 import { Kind } from "../bits.jsx";
 
 const DEFAULTS = {
-  investor: { query: "AI meeting facilitation, group collaboration and collective intelligence software", count: "5", early: true },
-  partner: { keywords: "community platform, leadership development, facilitation", titles: "Partnerships, Community, Head of People" },
-  conference: { keywords: "conference, summit, events", titles: "Program Director, Head of Events, Organizer" },
-  community: { keywords: "community, nonprofit, NGO, association, network, foundation, membership", titles: "Founder, Executive Director, Head of Community, Community Manager, Organizer, President" },
+  investor: { query: "AI meeting facilitation, group collaboration and collective intelligence software", count: 10, early: true },
+  partner: { keywords: "community platform, leadership development, facilitation", titles: "Partnerships, Community, Head of People", count: 25 },
+  conference: { keywords: "conference, summit, events", titles: "Program Director, Head of Events, Organizer", count: 25 },
+  community: { keywords: "community, nonprofit, NGO, association, network, foundation, membership", titles: "Founder, Executive Director, Head of Community, Community Manager, Organizer, President", count: 25 },
 };
 const TABS = [["investor", "Investors"], ["partner", "Partners"], ["conference", "Conferences"], ["community", "Communities"]];
 const LABEL = { investor: "investors", partner: "partners", conference: "conference contacts", community: "community leaders" };
-const money = (n) => "$" + Number(n).toFixed(2);
+// How many to find: investors are firms (up to 100), the others are people (up to 250).
+const RANGE = { investor: { min: 1, max: 100, step: 1, unit: "firms", marks: [1, 25, 50, 75, 100] }, other: { min: 5, max: 250, step: 5, unit: "people", marks: [5, 50, 100, 150, 200, 250] } };
+
+function HowMany({ tab, value, onChange }) {
+  const r = RANGE[tab === "investor" ? "investor" : "other"];
+  const clamp = (n) => Math.min(r.max, Math.max(r.min, Math.round(Number(n) || r.min)));
+  return (
+    <div className="how-many">
+      <div className="how-many__slider">
+        <Slider label={tab === "investor" ? "How many firms" : "How many people"} min={r.min} max={r.max} step={r.step} value={clamp(value)}
+          onChange={(v) => onChange(clamp(v))} valueDisplay="none" marks={r.marks.map((m) => ({ value: m, label: String(m) }))} />
+      </div>
+      <div className="how-many__input">
+        <NumberInput label="Exact number" isLabelHidden value={clamp(value)} min={r.min} max={r.max} onChange={(v) => onChange(clamp(v ?? r.min))} />
+        <Text size="sm" color="secondary">{r.unit}</Text>
+      </div>
+    </div>
+  );
+}
 
 // Form values per tab survive switching tabs and leaving the page.
 const memory = { tab: "investor", form: structuredClone(DEFAULTS), plain: "" };
@@ -36,13 +55,9 @@ export function Find() {
   const [plain, setPlain] = useState(memory.plain);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [balance, setBalance] = useState(null);
   const [picked, setPicked] = useState(new Set());
 
   useEffect(() => { memory.tab = tab; memory.form = form; memory.plain = plain; }, [tab, form, plain]);
-  useEffect(() => {
-    if (S.leads.enabled) call("GET", "/api/leads/balance").then((r) => r.available !== null && setBalance(Number(r.available))).catch(() => {});
-  }, [S.leads.enabled]);
 
   const saved = (S.leadResults || {})[tab];
   const rows = saved ? saved.rows : [];
@@ -60,8 +75,6 @@ export function Find() {
 
   const f = form[tab];
   const set = (patch) => setForm({ ...form, [tab]: { ...f, ...patch } });
-  const p = S.leads;
-  const cost = tab === "investor" ? Number(f.count) * p.pricePerFirm + p.pricePerLookup : p.pricePerLookup;
 
   const fillFromWords = async () => {
     try {
@@ -77,13 +90,12 @@ export function Find() {
   const run = async () => {
     setBusy(true); setNote("");
     try {
-      const body = tab === "investor" ? { query: f.query, count: Number(f.count), earlyOnly: f.early } : { kind: tab, keywords: f.keywords, titles: f.titles };
+      const body = tab === "investor" ? { query: f.query, count: Number(f.count) || 10, earlyOnly: f.early } : { kind: tab, keywords: f.keywords, titles: f.titles, count: Number(f.count) || 25 };
       const r = await call("POST", tab === "investor" ? "/api/leads/investors" : "/api/leads/people", body);
       setS((prev) => ({ ...prev, leadResults: r.leadResults || prev.leadResults, allLeads: r.allLeads || prev.allLeads }));
       if (r.warning) setNote(r.warning);
-      else if (!r.rows.length) setNote("Nothing matched, so nothing was charged. Try broader wording.");
-      if (r.rows.length) toast({ body: `Found ${r.rows.length}. Charged ${money(r.charge)}.` });
-      call("GET", "/api/leads/balance").then((b) => b.available !== null && setBalance(Number(b.available))).catch(() => {});
+      else if (!r.rows.length) setNote("Nothing matched. Try broader wording.");
+      if (r.rows.length) toast({ body: `Found ${r.rows.length}.` });
     } catch (e) { setNote(e.message); }
     setBusy(false);
   };
@@ -116,7 +128,7 @@ export function Find() {
     <VStack gap={5}>
       <VStack gap={1}>
         <Heading level={1}>Find leads</Heading>
-        <Text color="secondary">Search for people to reach, with their role and LinkedIn profile. Each search shows its price before it runs.{balance !== null ? ` Balance: ${money(balance)}.` : ""}</Text>
+        <Text color="secondary">Search for people to reach, with their role and LinkedIn profile.</Text>
       </VStack>
 
       <Card padding={4} className="plain-card">
@@ -127,7 +139,7 @@ export function Find() {
             </div>
             <Button label="Fill in the search" clickAction={fillFromWords} isDisabled={plain.trim().length < 6} />
           </HStack>
-          <Text size="sm" color="secondary">Turns your words into the search below. Nothing is charged until you run the search.</Text>
+          <Text size="sm" color="secondary">Turns your words into the search below. Nothing runs until you press Find.</Text>
         </VStack>
       </Card>
 
@@ -143,18 +155,17 @@ export function Find() {
             <>
               <TextArea label="What does your company do?" value={f.query} onChange={(v) => set({ query: v })} rows={2}
                 description="Finds firms that funded similar companies in the last two years, then up to two partners at each." />
-              <HStack gap={4} vAlign="center" wrap="wrap">
-                <div style={{ width: 160 }}><Selector label="How many firms" options={["5", "10", "20"]} value={String(f.count)} onChange={(v) => set({ count: v })} /></div>
-                <Switch label="Early-stage rounds only" value={f.early} onChange={(v) => set({ early: v })} />
-              </HStack>
+              <HowMany tab={tab} value={f.count} onChange={(v) => set({ count: v })} />
+              <Switch label="Early-stage rounds only" value={f.early} onChange={(v) => set({ early: v })} />
             </>
           ) : (
             <>
               <TextInput label={tab === "partner" ? "Kind of organisation" : tab === "community" ? "Kind of community" : "Kind of event"} value={f.keywords} onChange={(v) => set({ keywords: v })} description="Keywords, separated by commas." />
-              <TextInput label="Roles to reach" value={f.titles} onChange={(v) => set({ titles: v })} description="One person per organisation, up to 25 results." />
+              <TextInput label="Roles to reach" value={f.titles} onChange={(v) => set({ titles: v })} description="One person per organisation." />
+              <HowMany tab={tab} value={f.count} onChange={(v) => set({ count: v })} />
             </>
           )}
-          <HStack><Button variant="primary" isLoading={busy} label={`Find ${LABEL[tab]} · about ${money(cost)}`} onClick={run} /></HStack>
+          <HStack><Button variant="primary" isLoading={busy} label={`Find ${LABEL[tab]}`} onClick={run} /></HStack>
         </VStack>
       </Card>
 
@@ -164,10 +175,6 @@ export function Find() {
             <Text size="sm" color="secondary" style={{ flex: 1 }}>
               Last search{saved?.at ? ` · ${fmtDate(saved.at)} ${new Date(saved.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""} · {rows.length} results, {rows.length - fresh.length} in pipeline
             </Text>
-            <Button size="sm" variant="ghost" icon={<Eraser size={14} />} label="Clear results" clickAction={async () => {
-              if (!confirm("Clear these search results? Leads already added to your pipeline stay there.")) return;
-              await act("POST", "/api/leads/clear", { kind: tab });
-            }} />
           </HStack>
           <div className="table-wrap"><Table data={rows} columns={columns} density="compact" /></div>
           <div className="actionbar">

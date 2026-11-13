@@ -85,3 +85,16 @@ body { font-family: var(--font-family-body, "Figtree", system-ui, sans-serif); }
 .autosave--failed { color: #e0866f; }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* How many to find: slider with an exact number beside it */
+.how-many { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding-bottom: 22px; }
+.how-many__slider { flex: 1; min-width: 260px; max-width: 520px; }
+.how-many__input { display: flex; align-items: center; gap: 8px; width: 170px; }
+
+/* Who the lead is: email, LinkedIn and what the lookup found */
+.person-facts { display: grid; grid-template-columns: 92px 1fr; gap: 8px 12px; margin: 4px 0 0; align-items: center; }
+.person-facts dt { font-size: 12px; color: var(--color-text-secondary, #9a9a9a); }
+.person-facts dd { margin: 0; min-width: 0; }
+.person-email { color: #9db8ff; font-size: 14px; text-decoration: none; word-break: break-all; }
+.person-email:hover { text-decoration: underline; }
+.person-role { display: block; }
