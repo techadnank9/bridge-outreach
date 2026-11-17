@@ -46,6 +46,29 @@ Model choice was tested blind (`scripts/compare-models.mjs`, reports in `scripts
 - **Background work** (`autopilot`, `personQueue`, `tick()` every 10 minutes): person lookup for every new lead, research + draft for strong leads, follow-ups when due, Gmail sync. `daily_research_cap` limits automatic spend.
 - **Scoring**: `rate()` gives a score and a level (1 Dream, 2 Strong, 3 Fit, 4 Not now).
 
+## Costs and provider decisions
+
+Measured, not list prices, unless marked. Re-check with `glasser inspect` before relying on them; the catalogue changes.
+
+| Step | Provider (through Glasser) | Cost |
+|---|---|---|
+| Find investor firms by what they funded | Fundable `/investors` | $0.06 per firm returned |
+| Find people by role (name, role, LinkedIn) | Prospeo `/search-person` | $0.0245 per call, up to 25 people |
+| Email and LinkedIn for one person | Prospeo `/enrich-person` | $0.0245 per person found, free on a miss |
+| Write the first email and LinkedIn messages | `claude-fable-5-2` | $0.0745 per draft (`scripts/compare-report.html`) |
+
+- One complete lead: **investor $0.057** (firm cost shared by two people), **any other lead $0.026**. With a draft: $0.13 and $0.10.
+- 100 leads with drafts: **$13.15 investors, $10.05 others**. Hosting ($7.25 a month on Render) is separate and fixed.
+- Cheaper writers from the same comparison: `claude-opus-5-5` $0.0346 a draft, `claude-sonnet-5-5` $0.0079; both met every rule 3/3. Switch with `DRAFT_MODEL`, no code change.
+
+Where this stands (13 to 17 November 2026):
+- **Keep Fundable + Prospeo.** Decided by the user: "lets keep what we have".
+- **Fable stays the draft writer for now.** The user asked about switching to Opus to save cost; the recommendation given was to stay on Fable, and no switch was requested. Revisit if volume reaches thousands a month, or if a blind read shows no difference from Opus.
+
+Seen in the Glasser catalogue but **not tested**: Apify LinkedIn profile with contact details ($0.01 a result), Apollo person match ($0.0198), Hunter email finder ($0.0245), Bright Data LinkedIn profile ($0.0017). Proposed and not run: compare them on ten pipeline investors (about $0.50), and add a fallback (Prospeo, then Hunter, then Apollo) for people Prospeo has no email for.
+
+Tested and rejected: Apollo's free people search (hides last names), Crunchbase investor search (by firm name only, not by what they fund).
+
 ## Running it
 
 ```bash
