@@ -19,10 +19,10 @@ const EXPORT_PAGE = "https://www.linkedin.com/mypreferences/d/download-my-data";
 // The exact path on LinkedIn, one action per step, ending at the drop box below the list.
 const STEPS = [
   ["Open LinkedIn's export page", "Or on LinkedIn: your photo, Settings & Privacy, Data privacy, Get a copy of your data", true],
-  ["Choose \"Want something in particular?\" and tick Connections", "Leave the other boxes empty so the file arrives faster"],
+  ["Choose the first option, \"Download larger data archive\"", "It is the one that includes connections. If you see a Connections tick box under the second option, that works too and is faster"],
   ["Press Request archive", "LinkedIn may ask for your password"],
-  ["Wait for LinkedIn's email, then press Download archive", "Usually minutes, sometimes a day or two. The link works for 72 hours"],
-  ["Open the downloaded zip file", "Inside is a file named Connections.csv"],
+  ["Wait for LinkedIn's email, then press Download archive", "Usually within a day, sometimes two. The link works for 72 hours"],
+  ["Open the downloaded zip file", "It holds many files. The one you need is named Connections.csv"],
   ["Drop Connections.csv in the box below", "It is read once and matched to your targets. Nothing is sent"],
 ];
 
