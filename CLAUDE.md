@@ -40,7 +40,7 @@ Model choice was tested blind (`scripts/compare-models.mjs`, reports in `scripts
 - **`web/`**: React 19 + Vite UI using the **Astryx** design system (`@astryxdesign/core`, dark neutral theme). `npm run build` writes `dist/`. The old single-page UI is still at `/classic` (`public/index.html`).
   - `App.jsx`: shell, side navigation, global "outside links open in a new tab", lead panel / full page switching.
   - `Record.jsx`: a pipeline lead (panel or full page): score, why now, the person (email, LinkedIn, details), email, follow-up, LinkedIn, history.
-  - `pages/`: Today (review queue), Pipeline, Find leads, All leads (every lead ever found, with its own panel), Follow-ups, What works, Import, Your pitch (autosaves).
+  - `pages/`: Today (review queue), Pipeline, Connections (the founder's LinkedIn connections), Find leads, All leads (every lead ever found, with its own panel), Follow-ups, What works, Import, Your pitch (autosaves).
   - `demo/OutreachDemo.tsx`: the sign-in page's animated product demo, built with the vendored Stageshow kit (`stageshow/kit`, MIT). ThreeUI (`@designcodeio/threeui`) draws the backgrounds; only its native components are used, never its iframe scenes.
 - **Lead data** comes from the Glasser CLI (`node_modules/.bin/glasser`): Fundable for investor firms (up to 100 per search), Prospeo for people (25 per page) and for email + LinkedIn lookup (`/enrich-person`). Every lookup costs money; prices are deliberately **not** shown in the UI.
 - **Background work** (`autopilot`, `personQueue`, `tick()` every 10 minutes): person lookup for every new lead, research + draft for strong leads, follow-ups when due, Gmail sync. `daily_research_cap` limits automatic spend.
@@ -68,6 +68,18 @@ Where this stands (13 to 17 November 2026):
 Seen in the Glasser catalogue but **not tested**: Apify LinkedIn profile with contact details ($0.01 a result), Apollo person match ($0.0198), Hunter email finder ($0.0245), Bright Data LinkedIn profile ($0.0017). Proposed and not run: compare them on ten pipeline investors (about $0.50), and add a fallback (Prospeo, then Hunter, then Apollo) for people Prospeo has no email for.
 
 Tested and rejected: Apollo's free people search (hides last names), Crunchbase investor search (by firm name only, not by what they fund).
+
+## Connections
+
+LinkedIn is the main channel, data partnerships are the current focus, and outreach starts with people the founder already knows.
+
+- **No LinkedIn API, no automation.** LinkedIn gives apps no access to a member's connections, and tools that log in as the member break its rules. The founder downloads LinkedIn's own export (`Connections.csv`, from https://www.linkedin.com/mypreferences/d/download-my-data) and drops it on the Connections page. No code path logs in to LinkedIn or sends a LinkedIn message: the app drafts, the founder presses Copy, Open profile, sends it on LinkedIn, then presses Sent.
+- **Import** (`importConnections` in `server.mjs`, table `connections`): skips LinkedIn's note lines above the header, handles quoted commas and missing emails, one row per profile URL. A newer file updates people and adds new ones; Add and Skip decisions are kept. A changed job is sorted again.
+- **Who is relevant**: "Can introduce <name>" when the connection's company matches (normalised in plain code, `normOrg`) a named lead in the pipeline or All leads; this wins over Direct. "Direct" when role and company fit a data partner (organisations running many small-group conversations). Everyone first passes a free keyword filter; with an Anthropic key only those go to `claude-haiku-5-5`, best-known first, at most `connections_classify_cap` (default 200) per upload or "Check more" press, 50 per call. Without a key the keyword rule decides.
+- **Ranking** (`knownScore`): years connected, plus already in the pipeline, plus named in notes or history. One plain line per card.
+- **Search**: plain words over every imported connection, skipped people included. Haiku turns the words into match terms; matching is plain code. Without a key the words are matched as typed.
+- **Add** (`addConnection`): creates a pipeline lead (kind `partner`, or the target's kind for an intro) with the file's LinkedIn URL and email, `li_connected_on` set, `person_checked_at` set so no paid lookup runs, and drafts with the normal draft writer (`DRAFT_SYSTEM` has rules for people already connected and for introduction asks; `intro_to` holds the target). The draft lands in Today's review queue as a LinkedIn message. No research runs.
+- Routes: `GET /api/connections`, `POST /api/connections/import`, `/classify`, `/search`, `/:id/skip`, `/:id/undo`, `/:id/add`.
 
 ## Running it
 

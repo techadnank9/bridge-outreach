@@ -10,8 +10,9 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { StreamConvergenceBackground } from "@designcodeio/threeui/components/StreamConvergenceBackground";
 import { Inbox, Send, PencilLine, Clock3, X } from "lucide-react";
-import { useApp, reviewQueue, todayActions, followupsSentCount, gmailCompose, title, inPipeline } from "../data.js";
+import { useApp, reviewQueue, todayActions, followupsSentCount, gmailCompose, title, inPipeline, safeUrl } from "../data.js";
 import { Grade, Kind, Level, WhyNow } from "../bits.jsx";
+import { ConnectedLinkedIn } from "../Record.jsx";
 
 const SNOOZE = [
   { value: "3", label: "3 days" },
@@ -26,6 +27,8 @@ function ReviewCard({ c }) {
   const n = followupsSentCount(S, c.id) + 1;
   const subject = fu ? c.followup_subject : c.email_subject;
   const body = fu ? c.followup_body : c.email_body;
+  // Added from the founder's LinkedIn connections: the first touch is a LinkedIn message they send by hand.
+  const viaLinkedIn = c.li_connected_on && !fu;
 
   const approve = async () => {
     if (S.gmail.connected) {
@@ -43,7 +46,7 @@ function ReviewCard({ c }) {
       <VStack gap={3}>
         <HStack gap={3} vAlign="center" wrap="wrap">
           <Avatar name={c.name || title(c)} size="md" />
-          <VStack gap={0} style={{ minWidth: 0, flex: 1 }}>
+          <VStack gap={0} style={{ minWidth: 160, flex: 1 }}>
             <Text weight="semibold">{c.name || title(c)}</Text>
             <Text size="sm" color="secondary">{[c.role, c.org].filter(Boolean).join(", ")}</Text>
           </VStack>
@@ -55,6 +58,18 @@ function ReviewCard({ c }) {
           </HStack>
         </HStack>
         <WhyNow item={c} />
+        {viaLinkedIn ? (
+          <>
+            <Text size="sm" color="secondary">{c.intro_to ? "Introduction ask on LinkedIn" : "LinkedIn message"} · {c.warm_path}. Copy it, send it on LinkedIn yourself, then press Sent.</Text>
+            <div className="letter"><div className="letter-body">{c.li_message}</div></div>
+            <HStack gap={2} vAlign="center" wrap="wrap">
+              <ConnectedLinkedIn c={c} li={safeUrl(c.linkedin)} compact
+                log={async (channel, summary) => { await act("POST", `/api/contacts/${c.id}/sent`, { channel, summary }); toast({ body: "Logged as sent on LinkedIn" }); }} />
+              <Button label="Edit" icon={<PencilLine size={16} />} onClick={() => open(c.id)} />
+            </HStack>
+          </>
+        ) : (
+        <>
         <div className="letter">
           <div className="letter-subject">{subject}</div>
           <div className="letter-body">{body}</div>
@@ -81,6 +96,8 @@ function ReviewCard({ c }) {
             }} />
         </HStack>
         {!c.email && <Text size="sm" color="secondary">No email yet. Open it to find their email or add it.</Text>}
+        </>
+        )}
       </VStack>
     </Card>
   );

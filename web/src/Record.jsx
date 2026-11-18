@@ -215,6 +215,7 @@ function Outreach({ c }) {
         </Card>
       )}
 
+      {c.li_connected_on ? <ConnectedLinkedIn c={c} li={li} save={save} log={log} /> : (
       <Card padding={4}>
         <VStack gap={3}>
           <Heading level={4}>3. LinkedIn</Heading>
@@ -234,6 +235,7 @@ function Outreach({ c }) {
           </HStack>
         </VStack>
       </Card>
+      )}
 
       <Card padding={4}>
         <VStack gap={2}>
@@ -248,6 +250,40 @@ function Outreach({ c }) {
     </VStack>
   );
 }
+
+// Someone the founder already knows on LinkedIn: no connection request, just the message (or introduction ask).
+// The app never sends it: Copy, Open profile, send it on LinkedIn, then Sent records it here.
+export function ConnectedLinkedIn({ c, li, save, log, compact }) {
+  const { S, toast } = useApp();
+  const intro = Boolean(c.intro_to);
+  const sent = S.activity.find((a) => a.contact_id === c.id && a.channel === "linkedin_message");
+  const since = /^\d{4}-\d{2}/.test(c.li_connected_on) ? ` since ${fmtMonth(c.li_connected_on)}` : "";
+  const buttons = (
+    <HStack gap={2} wrap="wrap" className="li-sent-row">
+      <Button icon={<Copy size={16} />} label="Copy" onClick={() => copyText(c.li_message || "", toast, "Message copied")} />
+      <Button icon={<UserRound size={16} />} label="Open profile" href={li || linkedinSearch(c)} />
+      <Button variant="primary" icon={<CheckCheck size={16} />} label={sent ? "Sent again" : "Sent"}
+        clickAction={() => log("linkedin_message", intro ? "Introduction ask sent on LinkedIn" : "LinkedIn message sent")} />
+    </HStack>
+  );
+  if (compact) return buttons;
+  return (
+    <Card padding={4}>
+      <VStack gap={3}>
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <Heading level={4}>3. LinkedIn</Heading>
+          <Badge variant="success" label={`Connected${since}`} />
+          {intro && <Badge variant="purple" label="Introduction ask" />}
+        </HStack>
+        <Text size="sm" color="secondary">Nothing sends itself. Copy the message, open their profile, send it on LinkedIn, then press Sent here.</Text>
+        <Field label={intro ? "Introduction ask" : "Message"} value={c.li_message} onSave={save("li_message")} rows={6} />
+        {buttons}
+        {sent && <Text size="sm" color="secondary">Marked sent {fmtDate(sent.at)}.</Text>}
+      </VStack>
+    </Card>
+  );
+}
+const fmtMonth = (iso) => new Date(`${iso.slice(0, 7)}-01T00:00:00Z`).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
 
 function Details({ c, onClose }) {
   const { S, act, toast } = useApp();

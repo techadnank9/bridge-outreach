@@ -10,20 +10,21 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
-  Sunrise, KanbanSquare, Search, Users, Reply, LineChart, Upload, PenLine, LogOut, Orbit,
+  Sunrise, KanbanSquare, Search, Users, Reply, LineChart, Upload, PenLine, LogOut, Orbit, Contact,
 } from "lucide-react";
 import { AppContext, call, followups, reviewQueue, todayActions } from "./data.js";
 import { Today } from "./pages/Today.jsx";
 import { Pipeline } from "./pages/Pipeline.jsx";
 import { Find } from "./pages/Find.jsx";
 import { Leads } from "./pages/Leads.jsx";
+import { Connections } from "./pages/Connections.jsx";
 import { Followups } from "./pages/Followups.jsx";
 import { Insights } from "./pages/Insights.jsx";
 import { Import } from "./pages/Import.jsx";
 import { Pitch } from "./pages/Pitch.jsx";
 import { Record, RecordPage } from "./Record.jsx";
 
-const PAGES = { today: Today, pipeline: Pipeline, find: Find, leads: Leads, followups: Followups, insights: Insights, import: Import, settings: Pitch };
+const PAGES = { today: Today, pipeline: Pipeline, connections: Connections, find: Find, leads: Leads, followups: Followups, insights: Insights, import: Import, settings: Pitch };
 
 export function App() {
   const [S, setS] = useState(null);
@@ -83,6 +84,8 @@ export function App() {
   const nav = [
     ["today", "Today", Sunrise],
     ["pipeline", "Pipeline", KanbanSquare],
+    // People the founder already knows come before finding strangers.
+    ["connections", "Connections", Contact],
     ["find", "Find leads", Search],
     ["leads", "All leads", Users],
     ["followups", "Follow-ups", Reply],
@@ -115,14 +118,14 @@ export function App() {
               </SideNavSection>
             }>
             <SideNavSection title="Work" isHeaderHidden>
-              {nav.slice(0, 5).map(([id, label, icon]) => (
+              {nav.slice(0, 6).map(([id, label, icon]) => (
                 <SideNavItem key={id} label={label} icon={icon} isSelected={view === id} onClick={() => go(id)}
                   endContent={counts[id] ? <Badge label={String(counts[id])} variant={id === "today" ? "info" : "neutral"} /> : undefined} />
               ))}
             </SideNavSection>
             <Divider />
             <SideNavSection title="Setup" isHeaderHidden>
-              {nav.slice(5).map(([id, label, icon]) => (
+              {nav.slice(6).map(([id, label, icon]) => (
                 <SideNavItem key={id} label={label} icon={icon} isSelected={view === id} onClick={() => go(id)} />
               ))}
             </SideNavSection>

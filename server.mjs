@@ -194,6 +194,23 @@ addColumn("contacts", "review", "TEXT NOT NULL DEFAULT ''");          // '', pen
 addColumn("contacts", "snooze_until", "TEXT");
 addColumn("contacts", "gmail_thread_id", "TEXT NOT NULL DEFAULT ''");
 addColumn("contacts", "gmail_message_id", "TEXT NOT NULL DEFAULT ''");
+// Leads added from the founder's own LinkedIn connections: when they connected ('' means not connected),
+// and, for an introduction ask, who the founder wants to meet through them (JSON, '' when it is a direct message).
+addColumn("contacts", "li_connected_on", "TEXT NOT NULL DEFAULT ''");
+addColumn("contacts", "intro_to", "TEXT NOT NULL DEFAULT ''");
+// Every person in the founder's LinkedIn connections file. Keyed by profile URL so a newer file updates
+// people instead of adding them twice, and the founder's Add or Skip survives a re-upload.
+db.exec(`CREATE TABLE IF NOT EXISTS connections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL UNIQUE,
+  first_name TEXT NOT NULL DEFAULT '', last_name TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
+  linkedin TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+  company TEXT NOT NULL DEFAULT '', position TEXT NOT NULL DEFAULT '',
+  connected_on TEXT NOT NULL DEFAULT '',
+  fit INTEGER, fit_why TEXT NOT NULL DEFAULT '', fit_source TEXT NOT NULL DEFAULT '', classified_at TEXT,
+  decision TEXT NOT NULL DEFAULT '', contact_id INTEGER,
+  imported_at TEXT NOT NULL, updated_at TEXT NOT NULL
+)`);
 // One row per message sent, so the app can learn which kinds of message get replies.
 db.exec(`CREATE TABLE IF NOT EXISTS sends (
   id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id INTEGER NOT NULL, kind TEXT, level INTEGER, category TEXT,
@@ -252,6 +269,9 @@ const DEFAULT_SETTINGS = {
   signature: "",
   block_list: "",
   daily_research_cap: "20",
+  // Most LinkedIn connections the model sorts per upload (or per "Check more" press). The rest wait,
+  // so a file with thousands of people never turns into thousands of model calls.
+  connections_classify_cap: "200",
 };
 for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run(key, value);
@@ -759,23 +779,14 @@ async function leadRoutes(req, res, parts) {
     const text = tidy(body.text, 400);
     if (text.length < 6) return send(res, 400, { error: "Describe who you want to reach in a few words." });
     if (AI_PROVIDER !== "anthropic") return send(res, 400, { error: "Plain-words search needs an Anthropic key." });
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
-    const response = await client.messages.create({
-      model: "claude-haiku-5-5",
-      max_tokens: 4000,
-      output_config: { effort: "low" },
-      system: [
+    const out = await plainWords([
         "You turn a founder's plain description of who they want to reach into search fields for a people database.",
         "kind is one of investor, partner, conference, community.",
         "For investor: query describes the kind of companies those investors back, written like a company description (they are matched by portfolio). Leave keywords and titles empty.",
         "For the others: keywords are 3 to 8 short words or phrases describing the organisations (industry, type, focus); titles are 3 to 8 job titles of the person to reach.",
         "Put any place or size the founder mentions into the keywords. note is one plain sentence saying what the search will look for.",
         'Return only JSON: {"kind": string, "query": string, "keywords": [string], "titles": [string], "note": string}.',
-      ].join("\n"),
-      messages: [{ role: "user", content: text }],
-    });
-    const out = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+      ].join("\n"), text);
     try {
       const plan = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
       if (!KINDS.includes(plan.kind)) plan.kind = "partner";
@@ -923,12 +934,371 @@ function exportCsv() {
   return lines.join("\n");
 }
 
+// ---------- LinkedIn connections ----------
+// LinkedIn gives apps no way to read a member's connections, and tools that log in as the member break its rules.
+// So the founder downloads LinkedIn's own export (Connections.csv) and uploads it here. Nothing in this app
+// logs in to LinkedIn or sends anything there: it drafts, the founder copies, sends on LinkedIn, and marks it sent.
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// LinkedIn writes dates like "12 Mar 2022"; older exports and spreadsheets may use 2022-03-12. Returns YYYY-MM-DD or ''.
+function connectedOn(raw) {
+  const v = String(raw || "").trim();
+  let m = /^(\d{1,2})[\s-]([A-Za-z]{3})[A-Za-z]*[\s-](\d{4})$/.exec(v);
+  if (m && MONTHS.includes(m[2].toLowerCase())) return `${m[3]}-${String(MONTHS.indexOf(m[2].toLowerCase()) + 1).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
+}
+const monthYear = (iso) => {
+  const m = /^(\d{4})-(\d{2})/.exec(iso || "");
+  return m ? `${MONTHS[Number(m[2]) - 1].replace(/^./, (x) => x.toUpperCase())} ${m[1]}` : "a while";
+};
+// One key per person: their profile address without the protocol, www, query or trailing slash.
+const profileKey = (url) =>
+  String(url || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[?#]/)[0].replace(/\/+$/, "");
+// Company names compared in plain code: case, punctuation, "&" and legal suffixes do not matter.
+const LEGAL = new Set(["inc", "incorporated", "ltd", "limited", "llc", "llp", "plc", "gmbh", "co", "corp", "corporation", "company", "the", "sa", "ag", "bv", "pty", "pbc"]);
+const normOrg = (name) =>
+  String(name || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w && !LEGAL.has(w)).join(" ");
+
+function introTarget(c) {
+  if (!c.intro_to) return null;
+  try { return JSON.parse(c.intro_to); } catch { return null; }
+}
+
+// Reads the export: skips LinkedIn's note lines above the header, handles quoted commas and missing emails,
+// and keeps one row per profile. Re-uploading updates people already here and never touches Add or Skip.
+function importConnections(text) {
+  const rows = parseCsv(String(text || "").replace(/^﻿/, ""));
+  const headerAt = rows.findIndex((r) => {
+    const cells = r.map((x) => x.trim().toLowerCase());
+    return cells.includes("first name") && (cells.includes("url") || cells.includes("company"));
+  });
+  if (headerAt < 0) return { error: "This does not look like LinkedIn's Connections.csv. It needs the First Name, Last Name, URL, Company and Position columns." };
+  const header = rows[headerAt].map((x) => x.trim().toLowerCase());
+  const col = (name) => header.indexOf(name);
+  const at = { first: col("first name"), last: col("last name"), url: col("url"), email: col("email address"), company: col("company"), position: col("position"), on: col("connected on") };
+  const stamp = now();
+  const find = db.prepare("SELECT * FROM connections WHERE key = ?");
+  const insert = db.prepare(`INSERT INTO connections (key, first_name, last_name, name, linkedin, email, company, position, connected_on, imported_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  // A changed job means the old fit no longer holds, so it is sorted again; the founder's decision stays.
+  const update = db.prepare(`UPDATE connections SET first_name = ?, last_name = ?, name = ?, linkedin = ?, email = ?, company = ?, position = ?, connected_on = ?,
+    fit = CASE WHEN company = ? AND position = ? THEN fit ELSE NULL END,
+    classified_at = CASE WHEN company = ? AND position = ? THEN classified_at ELSE NULL END,
+    updated_at = ? WHERE id = ?`);
+  let read = 0, added = 0, updated = 0, skipped = 0;
+  const seen = new Set();
+  for (const cells of rows.slice(headerAt + 1)) {
+    const get = (i) => (i >= 0 ? tidy(cells[i], 200) : "");
+    const first = get(at.first), last = get(at.last);
+    const name = tidy(`${first} ${last}`, 120);
+    const url = get(at.url);
+    const key = profileKey(url) || (name ? `name:${name.toLowerCase()}|${normOrg(get(at.company))}` : "");
+    if (!key || !name) { skipped++; continue; }
+    if (seen.has(key)) continue; // the same person twice in one file
+    seen.add(key);
+    read++;
+    const email = EMAIL_PATTERN.test(get(at.email)) ? get(at.email) : "";
+    const linkedin = profileKey(url) ? `https://www.${profileKey(url)}` : "";
+    const company = get(at.company), position = get(at.position), on = connectedOn(get(at.on));
+    const old = find.get(key);
+    if (old) {
+      update.run(first, last, name, linkedin || old.linkedin, email || old.email, company, position, on || old.connected_on,
+        company, position, company, position, stamp, old.id);
+      updated++;
+    } else {
+      insert.run(key, first, last, name, linkedin, email, company, position, on, stamp, stamp);
+      added++;
+    }
+  }
+  if (!read) return { error: "The file has the right columns but no people in it." };
+  return { read, added, updated, skipped };
+}
+
+// Organisations that run many small-group conversations: the data partners being looked for.
+const ORG_FIT = [
+  [/\b(research|lab|labs|laborator|institute|university|universit|think tank)\b/i, "research organisation"],
+  [/\b(facilitat\w*|dialogue|deliberat\w*|assembl\w*|civic|mediation)\b/i, "facilitation or dialogue group"],
+  [/\b(accelerator|incubator|fellowship|cohorts?|venture studio)\b/i, "accelerator or cohort programme"],
+  [/\b(community|network|forums?|circle|guild|society|association|club|collective|commons|council|peer|members?|alliance)\b/i, "member network"],
+  [/\b(learning|leadership|coaching|academy|school|college|education|programmes?|programs?)\b/i, "learning programme"],
+];
+const ROLE_FIT = /\b(research|researcher|community|programs?|programmes?|partnerships?|learning|facilitat\w*|cohorts?|members(hip)?|fellowship|curriculum|dean|professor|engagement|data|insights?|events?|convening)\b/i;
+const orgKind = (company) => (ORG_FIT.find(([re]) => re.test(company || "")) || [])[1] || "";
+// The cheapest filter, run on everyone: only these are worth a model call.
+const maybeFit = (x) => Boolean(orgKind(x.company) || ROLE_FIT.test(x.position || ""));
+// Used when no key is set or a model call fails: the company type plus a role that runs or decides on the work.
+function keywordFit(x) {
+  const kind = orgKind(x.company);
+  const fit = Boolean(kind && (ROLE_FIT.test(x.position || "") || DECIDER.test(x.position || "")));
+  return { fit, why: fit ? `${x.position || "Works"} at what looks like ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}.` : "" };
+}
+
+const CLASSIFY_SYSTEM = [
+  "You sort a founder's LinkedIn connections. The founder's lab runs roundtables: up to six people in a focused conversation with an AI co-host.",
+  "They are looking for data partners: organisations that run many small-group conversations, such as research labs, peer networks, facilitation firms, accelerators, and community or learning programmes.",
+  "For each person, decide whether their role and organisation make them a good person to talk to directly about such a partnership: they run, research or decide on those group programmes.",
+  "why: one plain sentence under 15 words about them, using only the role and organisation given. Never invent facts.",
+  'Return only JSON: {"results": [{"id": number, "fit": boolean, "why": string}]}.',
+].join("\n");
+
+// Sorts people not yet sorted. Everyone fails or passes the free keyword filter first; with a key, only those
+// that pass go to the model, best-known first, at most connections_classify_cap per run, in batches of 50.
+async function classifyConnections() {
+  const pending = db.prepare("SELECT * FROM connections WHERE classified_at IS NULL").all();
+  const mark = db.prepare("UPDATE connections SET fit = ?, fit_why = ?, fit_source = ?, classified_at = ? WHERE id = ?");
+  const candidates = [];
+  for (const x of pending) {
+    if (maybeFit(x)) candidates.push(x);
+    else mark.run(0, "", "keywords", now(), x.id);
+  }
+  if (AI_PROVIDER !== "anthropic") {
+    for (const x of candidates) { const k = keywordFit(x); mark.run(k.fit ? 1 : 0, k.why, "keywords", now(), x.id); }
+    return { checked: candidates.length, waiting: 0, by: "keywords" };
+  }
+  const cap = Math.max(0, Math.min(1000, Number(getSettings().connections_classify_cap) || 0));
+  const known = knownSignals();
+  const batch = candidates.sort((a, b) => knownScore(b, known).score - knownScore(a, known).score).slice(0, cap);
+  const groups = [];
+  for (let i = 0; i < batch.length; i += 50) groups.push(batch.slice(i, i + 50));
+  let usedModel = 0;
+  await Promise.all(groups.map(async (group) => {
+    let results = [];
+    try {
+      // Only role and company go to the model; names and emails stay here.
+      const out = await plainWords(CLASSIFY_SYSTEM, JSON.stringify(group.map((x) => ({ id: x.id, role: x.position, organisation: x.company }))), 8000);
+      const parsed = jsonIn(out);
+      results = Array.isArray(parsed.results) ? parsed.results : [];
+      usedModel++;
+    } catch (error) { console.log(`classify connections: ${error.message}`); }
+    for (const x of group) {
+      const r = results.find((y) => Number(y.id) === x.id);
+      if (r) mark.run(r.fit ? 1 : 0, tidy(r.why, 160), "model", now(), x.id);
+      else { const k = keywordFit(x); mark.run(k.fit ? 1 : 0, k.why, "keywords", now(), x.id); }
+    }
+  }));
+  return { checked: batch.length, waiting: candidates.length - batch.length, by: usedModel ? "model" : "keywords" };
+}
+
+// What the app already knows about people: who is in the pipeline, and names mentioned in notes and history.
+function knownSignals() {
+  const contacts = db.prepare("SELECT id, name, org, linkedin, warm_path, notes FROM contacts").all();
+  const text = [
+    ...contacts.map((c) => `${c.warm_path} ${c.notes}`),
+    ...db.prepare("SELECT summary FROM activity").all().map((a) => a.summary),
+  ].join("\n").toLowerCase();
+  return {
+    byKey: new Map(contacts.filter((c) => c.linkedin).map((c) => [profileKey(c.linkedin), c.id])),
+    byName: new Map(contacts.filter((c) => c.name).map((c) => [c.name.toLowerCase(), c.id])),
+    text,
+  };
+}
+// How well the founder knows someone, from what is actually available: years connected, and whether
+// they already show up in the pipeline or in notes and history. Returns a score and one plain line.
+function knownScore(x, known) {
+  const days = x.connected_on ? (Date.now() - new Date(x.connected_on).getTime()) / 86_400_000 : 0;
+  const years = days / 365;
+  let score = Math.min(years, 10) * 5;
+  const parts = [];
+  if (x.connected_on) parts.push(years >= 1 ? `Connected ${Math.floor(years)} year${Math.floor(years) === 1 ? "" : "s"}` : `Connected ${Math.max(1, Math.round(days / 30))} month${Math.round(days / 30) > 1 ? "s" : ""}`);
+  const contactId = known.byKey.get(x.key) || known.byName.get((x.name || "").toLowerCase()) || null;
+  if (contactId) { score += 30; parts.push("already in your pipeline"); }
+  const mentions = x.name ? known.text.split(x.name.toLowerCase()).length - 1 : 0;
+  if (mentions) { score += Math.min(mentions, 2) * 10; parts.push(`named in ${mentions} of your notes`); }
+  const line = parts.length ? `${parts.join(", ")}.` : "";
+  return { score, line: line.charAt(0).toUpperCase() + line.slice(1), contactId };
+}
+
+// Leads at each organisation, so a connection there can introduce the founder. Pipeline people come first.
+function targetsByOrg() {
+  const map = new Map();
+  const put = (t) => {
+    const k = normOrg(t.org);
+    if (k.length < 3 || !t.name) return;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(t);
+  };
+  for (const c of db.prepare("SELECT * FROM contacts WHERE stage <> 'Passed' AND name <> ''").all()) {
+    put({ name: c.name, role: c.role, org: c.org, kind: c.kind, fit: c.fit, why_now: c.why_now, linkedin: c.linkedin, where: "pipeline", score: 1000 + rate(c).score });
+  }
+  for (const l of db.prepare("SELECT * FROM leads WHERE name <> ''").all()) {
+    put({ name: l.name, role: l.role, org: l.org, kind: l.kind, fit: l.fit, why_now: l.why_now, linkedin: l.linkedin, where: "leads", score: rate(l).score });
+  }
+  for (const list of map.values()) list.sort((a, b) => b.score - a.score);
+  return map;
+}
+
+// One card's worth of facts for the page.
+function connectionView(x, targets, known) {
+  const k = knownScore(x, known);
+  const target = (targets.get(normOrg(x.company)) || [])
+    .find((t) => t.name.toLowerCase() !== x.name.toLowerCase() && (!t.linkedin || profileKey(t.linkedin) !== x.key));
+  // An introduction to someone already being pursued beats a fresh direct message.
+  const kind = target ? "intro" : x.fit ? "direct" : "";
+  const why = target
+    ? `Works at ${x.company} with ${target.name}${target.role ? `, ${target.role}` : ""}, ${target.where === "pipeline" ? "in your pipeline" : "a lead you found"}.`
+    : x.fit_why;
+  return {
+    id: x.id, name: x.name, role: x.position, company: x.company, linkedin: x.linkedin, email: x.email,
+    connected_on: x.connected_on, year: x.connected_on.slice(0, 4), kind, why, known: k.line, score: k.score,
+    target: target ? { name: target.name, role: target.role, org: target.org } : null,
+    decision: x.decision, contact_id: x.contact_id || k.contactId, in_pipeline: Boolean(k.contactId) && x.decision !== "added",
+  };
+}
+
+function connectionsState() {
+  const all = db.prepare("SELECT * FROM connections").all();
+  const targets = targetsByOrg(), known = knownSignals();
+  const relevant = all.map((x) => connectionView(x, targets, known)).filter((v) => v.kind);
+  const open = relevant.filter((v) => !v.decision && !v.in_pipeline).sort((a, b) => b.score - a.score);
+  const last = db.prepare("SELECT max(updated_at) AS at FROM connections").get().at;
+  return {
+    total: all.length,
+    imported_at: last,
+    open,
+    counts: { all: open.length, direct: open.filter((v) => v.kind === "direct").length, intro: open.filter((v) => v.kind === "intro").length },
+    added: all.filter((x) => x.decision === "added").length,
+    skipped: all.filter((x) => x.decision === "skipped").length,
+    waiting: all.filter((x) => x.classified_at === null).length,
+    by: AI_PROVIDER === "anthropic" ? "model" : "keywords",
+  };
+}
+
+const STOP = new Set(["people", "person", "who", "at", "in", "the", "a", "an", "of", "for", "and", "or", "with", "work", "works", "working", "from", "my", "me", "find", "show", "someone", "anyone", "that", "to", "on"]);
+const searchCache = new Map();
+// Plain-words search over every imported connection, skipped ones included. The model only turns the words
+// into match terms (with synonyms); the matching itself is plain code. Without a key, the words are used as typed.
+async function searchConnections(q) {
+  const query = tidy(q, 200);
+  const words = query.toLowerCase().split(/[^a-z0-9+#]+/).filter((w) => w.length > 1 && !STOP.has(w)).map((w) => (w.length > 4 ? w.replace(/s$/, "") : w));
+  let terms = words, how = "text";
+  if (AI_PROVIDER === "anthropic" && query.length >= 3) {
+    try {
+      if (!searchCache.has(query.toLowerCase())) {
+        const out = await plainWords([
+          "Turn a founder's plain description of people in their LinkedIn connections into match terms.",
+          "Terms are 4 to 14 short lowercase words or phrases likely to appear in a LinkedIn job title or company name, including common synonyms and abbreviations (for example 'head of community' also gives 'community lead', 'community director').",
+          'Return only JSON: {"terms": [string]}.',
+        ].join("\n"), query, 1500);
+        searchCache.set(query.toLowerCase(), (jsonIn(out).terms || []).map((t) => tidy(t, 60).toLowerCase()).filter(Boolean).slice(0, 14));
+      }
+      // The model's terms are more precise than the raw words ("heads of community" should not match every "Head of").
+      if (searchCache.get(query.toLowerCase()).length) terms = searchCache.get(query.toLowerCase());
+      how = "plain words";
+    } catch (error) { console.log(`connection search: ${error.message}`); }
+  }
+  const targets = targetsByOrg(), known = knownSignals();
+  const phrase = query.toLowerCase();
+  const hits = [];
+  for (const x of db.prepare("SELECT * FROM connections").all()) {
+    const hay = `${x.position} ${x.company}`.toLowerCase();
+    let n = terms.filter((t) => hay.includes(t)).length;
+    if (phrase.length > 2 && x.name.toLowerCase().includes(phrase)) n += 5;
+    if (n) hits.push({ n, v: connectionView(x, targets, known) });
+  }
+  hits.sort((a, b) => b.n - a.n || b.v.score - a.v.score);
+  return { items: hits.slice(0, 100).map((h) => h.v), found: hits.length, how, terms };
+}
+
+// Add: the person becomes a pipeline lead, already connected, with a drafted first message or introduction ask.
+// No person lookup runs (the file already has their profile and any email), so this costs one draft at most.
+async function addConnection(id) {
+  const x = db.prepare("SELECT * FROM connections WHERE id = ?").get(id);
+  if (!x) return { status: 404, error: "Connection not found." };
+  const v = connectionView(x, targetsByOrg(), knownSignals());
+  if (v.contact_id && getContact(v.contact_id)) {
+    db.prepare("UPDATE connections SET decision = 'added', contact_id = ?, updated_at = ? WHERE id = ?").run(v.contact_id, now(), id);
+    return { contact: getContact(v.contact_id), already: true };
+  }
+  if (isBlocked({ org: x.company, name: x.name, email: x.email })) return { status: 400, error: "This person or their company is on your block list." };
+  const t = v.target ? (targetsByOrg().get(normOrg(x.company)) || []).find((y) => y.name === v.target.name) : null;
+  const contact = insertContact({
+    kind: t?.kind || "partner",
+    org: x.company, name: x.name, role: x.position, email: x.email, linkedin: x.linkedin,
+    fit: v.why || "",
+    warm_path: x.connected_on ? `Already connected on LinkedIn since ${monthYear(x.connected_on)}` : "Already connected on LinkedIn",
+    notes: t ? `Asking for an introduction to ${t.name}${t.role ? `, ${t.role}` : ""}.` : "",
+    stage: "Research",
+  });
+  const intro = t ? JSON.stringify({ name: t.name, role: t.role || "", organisation: t.org, why_they_fit: t.fit || "", why_now: t.why_now || "" }) : "";
+  db.prepare("UPDATE contacts SET li_connected_on = ?, intro_to = ?, person_checked_at = ?, email_available = ? WHERE id = ?")
+    .run(x.connected_on || "unknown", intro, now(), x.email ? 1 : 0, contact.id);
+  db.prepare("UPDATE connections SET decision = 'added', contact_id = ?, updated_at = ? WHERE id = ?").run(contact.id, now(), id);
+  logEvent(getContact(contact.id), "note", "Added from your LinkedIn connections");
+  const { draft, source, warning } = await draftFor(getContact(contact.id));
+  updateContact(contact.id, draft);
+  db.prepare("UPDATE contacts SET review = 'pending' WHERE id = ?").run(contact.id);
+  return { contact: getContact(contact.id), source, warning };
+}
+
+async function connectionRoutes(req, res, parts) {
+  const method = req.method;
+  if (method === "GET" && parts.length === 2) return send(res, 200, connectionsState());
+  if (method === "POST" && parts[2] === "import") {
+    const body = await readJson(req);
+    const result = importConnections(body.csv);
+    if (result.error) return send(res, 400, { error: result.error });
+    const sorted = await classifyConnections();
+    return send(res, 200, { result: { ...result, ...sorted }, connections: connectionsState() });
+  }
+  if (method === "POST" && parts[2] === "classify") {
+    const sorted = await classifyConnections();
+    return send(res, 200, { result: sorted, connections: connectionsState() });
+  }
+  if (method === "POST" && parts[2] === "search") {
+    const body = await readJson(req);
+    if (tidy(body.q).length < 2) return send(res, 400, { error: "Type a few words to search." });
+    return send(res, 200, await searchConnections(body.q));
+  }
+  const id = Number(parts[2]);
+  if (method === "POST" && Number.isInteger(id) && parts[3] === "skip") {
+    db.prepare("UPDATE connections SET decision = 'skipped', updated_at = ? WHERE id = ? AND decision <> 'added'").run(now(), id);
+    return send(res, 200, { connections: connectionsState() });
+  }
+  if (method === "POST" && Number.isInteger(id) && parts[3] === "undo") {
+    db.prepare("UPDATE connections SET decision = '', updated_at = ? WHERE id = ? AND decision = 'skipped'").run(now(), id);
+    return send(res, 200, { connections: connectionsState() });
+  }
+  if (method === "POST" && Number.isInteger(id) && parts[3] === "add") {
+    const out = await addConnection(id);
+    if (out.error) return send(res, out.status, { error: out.error });
+    return send(res, 200, { ...out, connections: connectionsState(), ...state() });
+  }
+  return send(res, 404, { error: "Not found." });
+}
+
 // ---------- drafting ----------
 
 const askFor = (s, kind) =>
   kind === "partner" ? s.partner_ask : kind === "conference" ? s.conference_ask : kind === "community" ? s.community_ask : s.investor_ask;
 
+// Someone the founder already knows on LinkedIn: no connection request, and either a short first message
+// or, when they work alongside a target, a small introduction ask.
+function connectionTemplate(c, s) {
+  const first = (c.name || "").split(" ")[0] || "there";
+  const target = introTarget(c);
+  if (target) {
+    const why = target.why_they_fit ? ` ${target.why_they_fit.replace(/\.$/, "")}.` : "";
+    const message = `Hi ${first}, a small ask. I'd like to meet ${target.name}${target.role ? ` (${target.role})` : ""} on your side.${why}\n\nWould you be open to introducing us? I can send two lines you can forward.`;
+    return {
+      email_subject: `an intro to ${target.name}?`,
+      email_body: `${message}\n\n${signatureFor(s)}`,
+      li_note: `Hi ${first}, a small ask: would you introduce me to ${target.name}? I can send two lines you can forward.`.slice(0, 200),
+      li_message: message,
+    };
+  }
+  const ask = askFor(s, c.kind);
+  const message = `Hi ${first}, an idea for ${c.org || "your team"}. ${ask}\n\nOpen to it?`;
+  return {
+    email_subject: `${c.org || "your groups"} and a roundtable`,
+    email_body: `${message}\n\n${signatureFor(s)}`,
+    li_note: `Hi ${first}, ${ask}`.slice(0, 200),
+    li_message: message,
+  };
+}
+
 function templateDraft(c, s) {
+  if (c.li_connected_on) return connectionTemplate(c, s);
   const first = (c.name || "").split(" ")[0] || "there";
   const me = s.founder_name || "[your name]";
   const fit = c.fit ? c.fit.replace(/\.$/, "") : "";
@@ -1018,6 +1388,11 @@ const DRAFT_SYSTEM = [
   "- Never use: I hope this finds you well, reaching out, I wanted to, my name is, excited, thrilled, passionate, leverage, synergy, seamless, unlock, innovative, cutting-edge, game-changer, journey, perfect fit, pick your brain, circle back, touch base, what we're building, I'd value your read. No em dashes, no exclamation marks.",
   "- The LinkedIn note and message follow the same rules: about them first, one line on what they get, one small ask.",
   "",
+  "",
+  "People the sender already knows:",
+  "- If recipient.relationship says they are already a LinkedIn connection, li_message is the message to send now inside that existing connection. Never write 'thanks for connecting' or anything that pretends they just met. Never invent shared history, past conversations or how they met. li_note is then a one-line version of li_message under 200 characters.",
+  "- If introduction_target is supplied, every field is an introduction ask, not a pitch to this reader. Name the target, give one line on why the target in particular (only from what is supplied about them), and make the ask small: would they be open to introducing the sender. Then offer to send two short lines they can forward. Never claim the reader knows the target well; all that is known is that they work at the same organisation.",
+  "",
   "Lengths: email_body 40 to 95 words including the greeting. li_note at most 280 characters, no sign-off. li_message under 70 words, for after they accept the connection.",
   "Return only a JSON object with the string keys email_subject, email_body, li_note, li_message.",
 ].join("\n");
@@ -1049,6 +1424,21 @@ async function claudeText(model, messages, system = DRAFT_SYSTEM, timeout = 90_0
   if (response.stop_reason === "refusal") throw new Error("The model declined to write this draft.");
   return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
 }
+
+// The cheap, fast model behind plain-words search (Find leads, Connections) and sorting connections.
+async function plainWords(system, text, maxTokens = 4000) {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
+  const response = await client.messages.create({
+    model: "claude-haiku-5-5",
+    max_tokens: maxTokens,
+    output_config: { effort: "low" },
+    system,
+    messages: [{ role: "user", content: text }],
+  });
+  return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+}
+const jsonIn = (text) => JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
 
 async function openaiText(model, messages, system = DRAFT_SYSTEM) {
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -1101,7 +1491,16 @@ async function aiDraft(c, s, instruction = "") {
     },
     the_ask: askFor(s, c.kind),
   };
-  if (s.booking_link && rate(c).level === 1) facts.booking_link = s.booking_link;
+  if (c.li_connected_on) {
+    const since = /^\d{4}-\d{2}/.test(c.li_connected_on) ? ` since ${monthYear(c.li_connected_on)}` : "";
+    facts.recipient.relationship = `Already a LinkedIn connection of the sender${since}. Nothing else is known about how they know each other.`;
+  }
+  const target = introTarget(c);
+  if (target) {
+    facts.introduction_target = target;
+    facts.the_ask = `A small favour: would they introduce the sender to ${target.name}${target.role ? `, ${target.role}` : ""} at ${target.organisation || c.org}? Offer two short lines they can forward.`;
+  }
+  if (s.booking_link && rate(c).level === 1 && !target) facts.booking_link = s.booking_link;
   if (s.voice_samples.trim()) facts.how_the_sender_writes = s.voice_samples.trim().slice(0, 4000);
   const winners = db.prepare("SELECT subject, opener FROM sends WHERE replied = 1 AND followup_n = 0 ORDER BY at DESC LIMIT 5").all();
   if (winners.length >= 3) facts.first_emails_that_got_replies = winners;
@@ -1471,6 +1870,7 @@ async function api(req, res, url) {
     return send(res, result.error ? 400 : 200, { ...result, ...state() });
   }
   if (parts[1] === "leads") return leadRoutes(req, res, parts);
+  if (parts[1] === "connections") return connectionRoutes(req, res, parts);
   if (method === "POST" && parts[1] === "gmail" && parts[2] === "sync") {
     const body = await readJson(req);
     // Background checks from the page are throttled; a button press always runs.

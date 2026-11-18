@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LinkedIn-first pipeline for data partnerships · Bridge Outreach</title>
+<style>
+  :root {
+    --bg: #0d0e10; --panel: #16181b; --panel2: #1c1f23; --line: #282c32; --text: #eceef0; --muted: #969da6;
+    --accent: #7db0ff; --accent-bg: #16263f; --good: #62d19c; --good-bg: #12301f; --warn: #f1b75a; --warn-bg: #3a2a0e;
+    --dream: #f3cf5b; --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin: 44px 0 14px; font-weight: 600; }
+  p { margin: 0; }
+  .sub { color: var(--muted); max-width: 60ch; }
+  .grid { display: grid; gap: 12px; }
+  .g2 { grid-template-columns: 1fr 1fr; } .g4 { grid-template-columns: repeat(4, 1fr); } .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; }
+  ul.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  ul.ticks li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
+  ul.ticks .i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; margin-top: 1px; }
+  .yes .i { background: var(--good-bg); color: var(--good); } .new .i { background: var(--warn-bg); color: var(--warn); }
+  .stat b { display: block; font-size: 26px; letter-spacing: -0.02em; line-height: 1.1; }
+  .stat span { color: var(--muted); font-size: 13px; display: block; margin-top: 4px; }
+  .stat a { color: var(--muted); font-size: 11px; }
+  /* flow */
+  .flowwrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .flowwrap svg { min-width: 900px; width: 100%; height: auto; display: block; }
+  .node { cursor: pointer; }
+  .node rect, .node polygon { fill: var(--panel2); stroke: #3a4048; stroke-width: 1.2; transition: stroke .15s, fill .15s; }
+  .node:hover rect, .node:hover polygon, .node:focus rect, .node:focus polygon { stroke: var(--accent); }
+  .node.on rect, .node.on polygon { stroke: var(--accent); fill: var(--accent-bg); }
+  .node.win rect { stroke: #2f6a4c; } .node.win.on rect { fill: var(--good-bg); stroke: var(--good); }
+  .node text { fill: var(--text); font-size: 13px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+  .node text.when { fill: var(--muted); font-size: 11px; font-weight: 500; }
+  .node:focus { outline: none; }
+  .edge { stroke: #505862; stroke-width: 1.4; fill: none; marker-end: url(#arr); }
+  .edge.g { stroke: var(--good); stroke-dasharray: 5 4; marker-end: url(#arrg); }
+  .elabel { fill: var(--muted); font-size: 11px; }
+  .detail { margin-top: 12px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-height: 58px; }
+  .detail b { white-space: nowrap; } .detail p { color: #cfd3d8; }
+  .tag { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .tag.have { background: var(--good-bg); color: var(--good); } .tag.build { background: var(--warn-bg); color: var(--warn); }
+  /* mock */
+  .mock { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .mockbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tabs, .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .tabs button, .seg button { all: unset; cursor: pointer; padding: 9px 14px; min-height: 26px; border-radius: 7px; color: var(--muted); font-size: 14px; font-weight: 600; }
+  .tabs button[aria-selected="true"], .seg button[aria-pressed="true"] { background: var(--panel2); color: var(--text); }
+  .tabs button:focus-visible, .seg button:focus-visible, .btn:focus-visible, .pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .seglabel { color: var(--muted); font-size: 12px; margin-right: 8px; }
+  .mockbody { padding: 14px; min-height: 420px; }
+  .meters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .meter { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .meter .top { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .meter .top b { color: var(--text); font-size: 13px; }
+  .bar { height: 6px; background: #2a2e34; border-radius: 99px; margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s ease; }
+  .q { display: grid; gap: 10px; }
+  .item { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+  .who { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; }
+  .av { width: 40px; height: 40px; border-radius: 50%; background: #2b3038; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #c8ced6; }
+  .who .n { font-weight: 600; } .who .r { color: var(--muted); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #2a2e34; color: #c8ced6; white-space: nowrap; }
+  .chip.step { background: var(--accent-bg); color: var(--accent); } .chip.dream { background: #3a3210; color: var(--dream); } .chip.rep { background: var(--good-bg); color: var(--good); }
+  .why { font-size: 13px; color: #c3c8cf; border-left: 2px solid #3a4048; padding-left: 10px; }
+  .msg { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; font-size: 14px; white-space: pre-wrap; color: #dfe2e6; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint.over { color: #ff8f7d; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { all: unset; cursor: pointer; min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #3a4048; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; color: var(--text); }
+  .btn:hover { border-color: #5a626d; }
+  .btn.pri { background: var(--accent); border-color: var(--accent); color: #0b1420; }
+  .btn.sm { min-height: 36px; padding: 0 12px; font-size: 13px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 10px; }
+  .board { display: grid; grid-template-columns: repeat(5, minmax(170px, 1fr)); gap: 10px; overflow-x: auto; }
+  .col { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-height: 300px; }
+  .col h4 { margin: 0 0 10px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: .06em; }
+  .mini { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; cursor: pointer; display: grid; gap: 6px; }
+  .mini:hover { border-color: #4a525c; }
+  .mini .n { font-weight: 600; font-size: 13px; } .mini .r { color: var(--muted); font-size: 12px; }
+  .steps { display: grid; gap: 0; margin-top: 4px; }
+  .st { display: grid; grid-template-columns: 26px 1fr; gap: 10px; padding-bottom: 14px; position: relative; }
+  .st::before { content: ""; position: absolute; left: 12px; top: 24px; bottom: 0; width: 2px; background: #2c3137; }
+  .st:last-child::before { display: none; }
+  .dot { width: 26px; height: 26px; border-radius: 50%; background: #2a2e34; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--muted); z-index: 1; }
+  .st.done .dot { background: var(--good-bg); color: var(--good); } .st.now .dot { background: var(--accent); color: #0b1420; }
+  .st .t { font-weight: 600; font-size: 14px; } .st .d { color: var(--muted); font-size: 13px; }
+  .st .msg { margin-top: 6px; }
+  .st.todo .t { color: var(--muted); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: #f1f3f5; color: #111; padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 14px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100vw - 32px); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  /* decisions */
+  .dec h3 { margin: 0 0 10px; font-size: 15px; }
+  .picks { display: grid; gap: 8px; }
+  .pick { all: unset; cursor: pointer; display: block; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 24px; font-size: 14px; color: #cfd3d8; }
+  .pick small { display: block; color: var(--muted); font-size: 12px; }
+  .pick[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
+  .pick .rec { font-size: 10px; font-weight: 700; color: var(--accent); margin-left: 6px; text-transform: uppercase; letter-spacing: .06em; }
+  /* connections */
+  .strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 12px; }
+  .stepc { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 6px; align-content: start; }
+  .stepc .num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+  .stepc.last .num { background: var(--good-bg); color: var(--good); }
+  .stepc span { color: var(--muted); font-size: 13px; }
+  .drop { border: 1.5px dashed #3a4048; border-radius: 14px; padding: 28px 18px; display: grid; gap: 16px; justify-items: center; text-align: center; max-width: 560px; margin: 28px auto; }
+  .dropt { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .how { display: grid; gap: 10px; text-align: left; width: 100%; max-width: 420px; }
+  .how > div { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; }
+  .how small { display: block; color: var(--muted); font-size: 12px; }
+  .loadbar { width: 100%; max-width: 320px; }
+  .loadbar i { width: 100%; animation: load 1.3s ease-out; }
+  @keyframes load { from { width: 4%; } to { width: 100%; } }
+  .item { animation: rise .22s ease-out both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .manual { display: flex; gap: 8px; align-items: center; background: var(--good-bg); color: var(--good); border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; margin-bottom: 14px; }
+  @media (max-width: 760px) {
+    .strip { grid-template-columns: 1fr; }
+    .tabs { max-width: 100%; overflow-x: auto; } .tabs button { padding: 9px 9px; }
+    h1 { font-size: 23px; }
+    .g2, .g3 { grid-template-columns: 1fr; } .g4 { grid-template-columns: 1fr 1fr; }
+    .meters { grid-template-columns: 1fr; }
+    .detail { grid-template-columns: 1fr; gap: 6px; }
+    .who { grid-template-columns: 40px 1fr; } .chips { grid-column: 1 / -1; justify-content: flex-start; }
+    .btns { width: 100%; } .btns .btn { flex: 1; justify-content: center; }
+    .mockbar { justify-content: flex-start; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>LinkedIn first, data partnerships first</h1>
+  <p class="sub">A plan for review. Tap the flow chart steps, then try the mock-up underneath.</p>
+
+  <h2>Are we aligned with what is built?</h2>
+  <div class="grid g2">
+    <div class="card yes">
+      <h3>Already in the app</h3>
+      <ul class="ticks">
+        <li><span class="i">✓</span><span>Find leads, score them, keep every lead found</span></li>
+        <li><span class="i">✓</span><span>Why-now research with real sources</span></li>
+        <li><span class="i">✓</span><span>LinkedIn note and message drafted for every lead</span></li>
+        <li><span class="i">✓</span><span>The founder sends everything by hand (LinkedIn bans automation)</span></li>
+        <li><span class="i">✓</span><span>Email, follow-ups and reply tracking, now the fallback channel</span></li>
+      </ul>
+    </div>
+    <div class="card new">
+      <h3>Needs building</h3>
+      <ul class="ticks">
+        <li><span class="i">+</span><span>Connect LinkedIn: read the founder's connections, show the relevant ones, add or skip</span></li>
+        <li><span class="i">+</span><span>A LinkedIn queue as the Today page (today it is email first)</span></li>
+        <li><span class="i">+</span><span>LinkedIn stages: requested, connected, messaged, replied</span></li>
+        <li><span class="i">+</span><span>"Data partner" as a lead type with its own search and ask</span></li>
+        <li><span class="i">+</span><span>Note length set by account type (the app allows 280, free accounts stop at 200)</span></li>
+        <li><span class="i">+</span><span>Weekly invite budget and acceptance rate in What works</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Start with people the founder already knows</h2>
+  <div class="strip">
+    <div class="stepc"><span class="num">1</span><b>Connect LinkedIn</b><span>Upload the connections file LinkedIn gives you</span></div>
+    <div class="stepc"><span class="num">2</span><b>Get connections</b><span>Name, role, company, profile link, date connected</span></div>
+    <div class="stepc"><span class="num">3</span><b>Find the relevant ones</b><span>Who fits a data partner, who can introduce a target</span></div>
+    <div class="stepc"><span class="num">4</span><b>You decide</b><span>Add or skip, one tap each</span></div>
+    <div class="stepc last"><span class="num">5</span><b>You press send</b><span>Copy, open LinkedIn, send it yourself. Nothing sends itself</span></div>
+  </div>
+  <div class="grid g4">
+    <div class="card stat"><b>No API</b><span>LinkedIn does not let apps read a member's connections. That access is for compliance partners only</span><a href="https://stackoverflow.com/questions/73456258/how-do-i-get-approved-to-use-the-restricted-linkedin-connections-api">LinkedIn support reply</a></div>
+    <div class="card stat"><b>The export</b><span>LinkedIn's own file: name, profile link, company, role, date. Email only if they share it. Free and allowed</span><a href="https://www.linkedin.com/help/linkedin/answer/a1339364">LinkedIn Help</a></div>
+    <div class="card stat"><b>Minutes to 2 days</b><span>for the file to arrive by email. The download link lasts 72 hours</span><a href="https://enrow.io/en/blog/export-linkedin-contacts">Enrow, quoting LinkedIn Help</a></div>
+    <div class="card stat"><b>Risky shortcut</b><span>Tools that log in as you to read connections live break LinkedIn's rules. Accounts get restricted</span><a href="https://www.unipile.com/linkedin-chrome-extension-integration/">User Agreement 8.2</a></div>
+  </div>
+
+  <h2>The flow</h2>
+  <div class="flowwrap">
+    <svg viewBox="0 0 1060 380" role="img" aria-label="Outreach flow from finding a lead to a data agreement">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#505862"/></marker>
+        <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#62d19c"/></marker>
+      </defs>
+      <path class="edge" d="M140 56H161"/><path class="edge" d="M285 56H306"/><path class="edge" d="M430 56H451"/><path class="edge" d="M575 56H607"/>
+      <path class="edge" d="M709 56H756"/><text class="elabel" x="722" y="48">yes</text>
+      <path class="edge" d="M880 56H901"/>
+      <path class="edge" d="M660 88V196H756"/><text class="elabel" x="668" y="150">no, after 14 days</text>
+      <path class="edge" d="M963 82V196H884"/><text class="elabel" x="972" y="150">no reply</text>
+      <path class="edge" d="M820 222V292"/><text class="elabel" x="828" y="262">no reply</text>
+      <path class="edge g" d="M820 82V118H80V292"/><text class="elabel" x="96" y="110" style="fill:#62d19c">a reply at any step stops the sequence</text>
+      <path class="edge" d="M140 322H161"/><path class="edge" d="M285 322H306"/><path class="edge" d="M430 322H451"/>
+      <g id="nodes"></g>
+    </svg>
+    <div class="detail" id="detail" aria-live="polite"></div>
+  </div>
+
+  <h2>Try it: the founder's daily screen</h2>
+  <div class="mock">
+    <div class="mockbar">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="conn" aria-selected="true">Connections</button>
+        <button role="tab" data-tab="today" aria-selected="false">Today</button>
+        <button role="tab" data-tab="board" aria-selected="false">Pipeline</button>
+        <button role="tab" data-tab="lead" aria-selected="false">Lead</button>
+      </div>
+      <div><span class="seglabel">LinkedIn account</span>
+        <span class="seg"><button data-acct="free" aria-pressed="false">Free</button><button data-acct="premium" aria-pressed="true">Premium</button></span>
+      </div>
+    </div>
+    <div class="mockbody" id="body"></div>
+  </div>
+
+  <h2>Numbers to plan around</h2>
+  <div class="grid g4">
+    <div class="card stat"><b>~100</b><span>connection requests a week before LinkedIn restricts an account</span><a href="https://www.salesforge.ai/blog/linkedin-connection-request-limit">Salesforge</a></div>
+    <div class="card stat"><b>200 / 300</b><span>characters in a note: free / Premium. Free gets about 3 to 5 notes a month</span><a href="https://www.linkedin.com/help/linkedin/answer/a550555">LinkedIn Help</a></div>
+    <div class="card stat"><b>25% vs 28%</b><span>accepted with a note vs without. A note does not win the accept</span><a href="https://belkins.io/blog/linkedin-outreach-study">Belkins, 11.5M requests</a></div>
+    <div class="card stat"><b>48% vs 26%</b><span>reply after accepting, with a note vs without. The note wins the reply</span><a href="https://www.reachium.io/research/do-connection-notes-work">Reachium</a></div>
+  </div>
+  <div class="card" style="margin-top:12px"><b>What that means per week:</b> <span style="color:#cfd3d8">75 requests → about 20 accepted → about 5 replies → about 1 call, on cold averages. Why-now research and tight targeting are how we beat that.</span></div>
+
+  <h2>Four decisions for you</h2>
+  <div class="grid g2" id="decisions"></div>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+// ---------- flow chart ----------
+const NODES = [
+  { id: "find", x: 20, y: 30, t: "Find", w: "data partners", have: true, d: "The founder's own connections first, then a search for organisations that run many small-group conversations. People already connected skip straight to Message 1." },
+  { id: "research", x: 165, y: 30, t: "Research", w: "why now", have: true, d: "One recent, sourced reason to write: a call for data, a new cohort, a talk, a paper." },
+  { id: "warm", x: 310, y: 30, t: "Warm up", w: "day 0", have: false, d: "Follow them and leave one real comment on a recent post, so the name is familiar before the request." },
+  { id: "connect", x: 455, y: 30, t: "Connect", w: "day 1", have: false, d: "Connection request. Dream targets get a short note about them; everyone else goes without one." },
+  { id: "accepted", x: 660, y: 56, t: "Accepted?", diamond: true, have: false, d: "The founder taps Accepted in the app. No accept after 14 days moves the lead to email." },
+  { id: "msg1", x: 760, y: 30, t: "Message 1", w: "same day", have: true, d: "About them first, one line on what their people get, one small offer: a free session for one of their groups." },
+  { id: "msg2", x: 905, y: 30, t: "Message 2", w: "+4 days", have: false, d: "One new thing only: a concrete picture of a session for their members. Never \"just following up\"." },
+  { id: "email", x: 760, y: 170, t: "Email", w: "second channel", have: true, d: "The existing email writer and follow-ups take over when LinkedIn stays quiet." },
+  { id: "park", x: 760, y: 296, t: "Park", w: "90 days", have: false, d: "Stop. The lead comes back in 90 days, or sooner if new why-now research turns something up." },
+  { id: "reply", x: 20, y: 296, t: "Reply", w: "sequence stops", win: true, have: true, d: "Every pending step is cancelled and the lead goes to the top of Today." },
+  { id: "call", x: 165, y: 296, t: "Call", w: "20 minutes", win: true, have: true, d: "Booking link goes out only after they show interest." },
+  { id: "pilot", x: 310, y: 296, t: "Pilot", w: "one roundtable", win: true, have: false, d: "One session with one of their groups. They keep the summary and next steps." },
+  { id: "deal", x: 455, y: 296, t: "Data agreement", w: "consent + scope", win: true, have: false, d: "A short agreement: participant consent, de-identified data, what it may be used for, what they get back." },
+];
+const nodesEl = document.getElementById("nodes"), detailEl = document.getElementById("detail");
+const svgNS = "http://www.w3.org/2000/svg";
+function showNode(id) {
+  const n = NODES.find((x) => x.id === id);
+  document.querySelectorAll(".node").forEach((g) => g.classList.toggle("on", g.dataset.id === id));
+  detailEl.innerHTML = "";
+  const b = document.createElement("b"); b.textContent = n.t + (n.w ? " · " + n.w : "");
+  const p = document.createElement("p"); p.textContent = n.d;
+  const tag = document.createElement("span"); tag.className = "tag " + (n.have ? "have" : "build"); tag.textContent = n.have ? "In the app" : "To build";
+  detailEl.append(b, p, tag);
+}
+for (const n of NODES) {
+  const g = document.createElementNS(svgNS, "g");
+  g.setAttribute("class", "node" + (n.win ? " win" : "")); g.dataset.id = n.id; g.setAttribute("tabindex", "0"); g.setAttribute("role", "button");
+  g.setAttribute("aria-label", n.t);
+  if (n.diamond) {
+    g.innerHTML = `<polygon points="${n.x - 49},${n.y} ${n.x},${n.y - 32} ${n.x + 49},${n.y} ${n.x},${n.y + 32}"/><text x="${n.x}" y="${n.y + 4}" style="font-size:12px">${n.t}</text>`;
+  } else {
+    g.innerHTML = `<rect x="${n.x}" y="${n.y}" width="120" height="52" rx="10"/><text x="${n.x + 60}" y="${n.y + 23}">${n.t}</text><text class="when" x="${n.x + 60}" y="${n.y + 40}">${n.w}</text>`;
+  }
+  g.addEventListener("click", () => showNode(n.id));
+  g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showNode(n.id); } });
+  nodesEl.append(g);
+}
+showNode("connect");
+
+// ---------- mock-up ----------
+// All people and organisations here are invented for the mock-up.
+const LEADS = [
+  { id: 1, name: "Elena Sorokina", role: "Research Lead", org: "Open Deliberation Project", lvl: "Dream", step: "replied",
+    why: "Replied this morning: \"Interested. What would the data look like?\"", text: { replied: "Elena, each session gives you a de-identified transcript, who built on whose point, and where the group changed its mind. Every participant consents first.\n\nWant to see one from a session we ran last week?" } },
+  { id: 2, name: "Maya Okafor", role: "Director of Research", org: "Civic Dialogue Lab", lvl: "Dream", step: "msg1",
+    why: "Accepted yesterday. Her lab put out a call for real deliberation data in October.", text: { msg1: "Thanks for connecting, Maya. Your October call asked for real deliberation data. Your participants could run facilitated six-person conversations, and your lab would get the consented, de-identified transcripts and a summary of each.\n\nWant me to set up one session for a group of yours?" } },
+  { id: 3, name: "Tom Lindqvist", role: "Head of Community", org: "Northfield Operators Guild", lvl: "Strong", step: "msg2",
+    why: "Message 1 sent 4 days ago, no reply yet.", text: { msg2: "Tom, one concrete picture: five of your members, 45 minutes, one question they already argue about. They leave with the notes and next steps written up.\n\nWorth trying with one group?" } },
+  { id: 4, name: "Daniel Reyes", role: "Head of Programs", org: "Founders Circle Network", lvl: "Strong", step: "connect",
+    why: "Opened applications for 40 peer groups starting in January.", text: { connect: "Daniel, your 40 January peer groups are close to what we study: how small groups reach shared understanding. Glad to connect.",
+      msg1: "Thanks for connecting, Daniel. With 40 peer groups starting in January, a few could run one facilitated session each and keep the written summary.\n\nWant me to set one up for a single group first?" } },
+  { id: 5, name: "Priya Nair", role: "VP Data Partnerships", org: "Meridian Facilitation", lvl: "Dream", step: "warm",
+    why: "Spoke last month on measuring how groups decide. Posted the slides.", text: { warm: "Follow Priya, then comment on her slides post. A suggested comment:\n\nThe point about measuring who changes their mind, not who talks most, is the part most tools miss. How did you collect that?",
+      connect: "Priya, your talk on measuring how groups decide is the question our lab works on. Would be glad to connect and compare notes.",
+      msg1: "Thanks for connecting, Priya. Your talk argued for measuring who changes their mind. Your facilitators could get exactly that from each session, de-identified and consented.\n\nWant me to run one session with a client group of yours?" } },
+  { id: 6, name: "Ben Castellano", role: "Program Director", org: "Harbor Accelerator", lvl: "Strong", step: "email",
+    why: "No accept after 14 days. Email is verified.", text: { email: "Subject: your spring cohort check-ins\n\nBen, your spring cohort starts founder check-ins in March. Each group of six could run one facilitated conversation and leave with next steps written up.\n\nWant me to run one for a single group?" } },
+  { id: 7, name: "Aisha Rahman", role: "Chief Learning Officer", org: "Calder Leadership Institute", lvl: "Fit", step: "requested", days: 3,
+    why: "Runs 12 leadership cohorts a year.", text: { msg1: "Thanks for connecting, Aisha. With 12 cohorts a year, your participants could try one facilitated six-person conversation and keep the summary.\n\nWant me to set one up for a single cohort?" } },
+  { id: 8, name: "Jonas Weber", role: "Head of Research", org: "Kestrel Policy Forum", lvl: "Strong", step: "requested", days: 9,
+    why: "Published a paper on citizen panels in September.", text: { msg1: "Thanks for connecting, Jonas. Your September paper on citizen panels asked how to capture what a panel agreed on. One facilitated session would show you that, with consented, de-identified records.\n\nWant me to run one with a panel of yours?" } },
+];
+const STEP = {
+  replied: { chip: "Replied", col: 3, verb: "Reply sent, call offered", next: "call", done: "Moved to Call booked" },
+  msg1: { chip: "Message 1", col: 2, verb: "Sent", next: "sent1", done: "Message 2 is due in 4 days if there is no reply" },
+  msg2: { chip: "Message 2", col: 2, verb: "Sent", next: "sent2", done: "Email takes over in 5 days if there is no reply" },
+  connect: { chip: "Connect", col: 0, verb: "Request sent", next: "requested", done: "Waiting for them to accept" },
+  warm: { chip: "Warm up", col: 0, verb: "Done", next: "connect", done: "Connection request is due tomorrow" },
+  email: { chip: "Email", col: 1, verb: "Sent", next: "emailed", done: "Email follow-ups now run as they do today" },
+  intro: { chip: "Ask for intro", col: 2, verb: "Sent", next: "sentintro", done: "Waiting for the introduction" },
+  requested: { col: 1 }, sent1: { col: 2 }, sent2: { col: 2 }, emailed: { col: 1 }, call: { col: 4 }, sentintro: { col: 2 },
+};
+const ORDER = ["replied", "msg1", "intro", "msg2", "connect", "warm", "email"];
+const COLS = ["Not connected", "Requested", "Connected", "Replied", "Call booked"];
+const st = { tab: "conn", acct: "premium", week: 34, done: 0, notesLeft: 3, lead: 2, conn: "none", cf: "all" };
+// The founder's own connections that matter for data partnerships (invented, like the leads).
+const CONNS = [
+  { id: "c1", name: "Hannah Brooks", role: "Director of Community", org: "Lattice Peer Forums", since: 2021, kind: "direct", lvl: "Dream",
+    why: "Runs 60 member peer groups. Fits a data partner.",
+    text: "Hannah, it has been a while. Your 60 peer forums are the kind of small-group conversation our lab studies. One of your groups could try a facilitated session and keep the written summary.\n\nWant me to set one up?" },
+  { id: "c2", name: "Grace Liu", role: "Partner", org: "Meridian Facilitation", since: 2019, kind: "intro", to: "Priya Nair", lvl: "Dream",
+    why: "Works with Priya Nair, a Dream target you have not reached yet.",
+    text: "Grace, a small ask. Priya Nair's talk on measuring how groups decide is close to what our lab works on. Would you be open to introducing us? I can send two lines you can forward." },
+  { id: "c3", name: "Marcus Oyelaran", role: "Head of Research", org: "Assembly Commons", since: 2023, kind: "direct", lvl: "Strong",
+    why: "Leads research on citizen assemblies. Fits a data partner.",
+    text: "Marcus, your assembly research asks what a group actually agreed on. One facilitated session with a panel of yours would show that, with consented, de-identified records.\n\nWant me to run one?" },
+  { id: "c4", name: "Sofia Marchetti", role: "Programs Manager", org: "Founders Circle Network", since: 2022, kind: "intro", to: "Daniel Reyes", lvl: "Strong",
+    why: "Same team as Daniel Reyes, who opens 40 peer groups in January.",
+    text: "Sofia, a small ask. Daniel Reyes on your team is opening 40 peer groups in January, and one facilitated session could be useful to them. Would you be open to introducing us? I can send two lines you can forward." },
+  { id: "c5", name: "Ola Hansen", role: "Policy Fellow", org: "Kestrel Policy Forum", since: 2020, kind: "intro", to: "Jonas Weber", lvl: "Strong",
+    why: "Colleague of Jonas Weber, who has not accepted your request in 9 days.",
+    text: "Ola, a small ask. Jonas Weber's paper on citizen panels is close to what our lab studies. Would you be open to introducing us? I can send two lines you can forward." },
+  { id: "c6", name: "Wei Chen", role: "VP Learning", org: "Tandem Cohorts", since: 2020, kind: "direct", lvl: "Fit",
+    why: "Runs cohort leadership programs. A smaller fit.",
+    text: "Wei, your cohorts spend most of their time in small-group discussion. One group could try a facilitated session and keep the summary.\n\nWant me to set one up?" },
+];
+const body = document.getElementById("body");
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+const initials = (n) => n.split(" ").map((p) => p[0]).join("");
+let toastTimer;
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2400); }
+const queue = () => LEADS.filter((l) => ORDER.includes(l.step) && !l.doneToday).sort((a, b) => ORDER.indexOf(a.step) - ORDER.indexOf(b.step));
+
+function who(l, withStep) {
+  const w = el("div", "who");
+  w.append(el("div", "av", initials(l.name)));
+  const mid = el("div"); mid.append(el("div", "n", l.name), el("div", "r", `${l.role}, ${l.org}`)); w.append(mid);
+  const chips = el("div", "chips");
+  if (withStep && STEP[l.step].chip) chips.append(el("span", "chip " + (l.step === "replied" ? "rep" : "step"), STEP[l.step].chip));
+  chips.append(el("span", "chip" + (l.lvl === "Dream" ? " dream" : ""), l.lvl));
+  w.append(chips);
+  return w;
+}
+// What goes with a connection request depends on the account: free accounts have 200 characters and a few notes a month.
+function connectPlan(l) {
+  if (st.acct === "premium") return { note: true, limit: 300, hint: "" };
+  if (l.lvl === "Dream" && st.notesLeft > 0) return { note: true, limit: 200, hint: `Uses 1 of ${st.notesLeft} notes left this month` };
+  return { note: false, hint: "Send without a note. Free accounts get about 3 notes a month, kept for Dream targets. The why-now goes in Message 1 instead." };
+}
+function finish(l) {
+  const s = STEP[l.step];
+  if (l.step === "connect") { st.week++; if (st.acct === "free" && connectPlan(l).note) st.notesLeft--; }
+  l.step = s.next; l.doneToday = true; l.days = 0; st.done++;
+  toast(`${l.name.split(" ")[0]}: ${s.done}`);
+  render();
+}
+const meter = (label, val, max) => { const m = el("div", "meter"); const top = el("div", "top"); top.append(el("span", "", label)); top.append(el("b", "", max ? `${val} / ${max}` : String(val)));
+  m.append(top); if (max) { const bar = el("div", "bar"); const i = el("i"); i.style.width = Math.min(100, (val / max) * 100) + "%"; bar.append(i); m.append(bar); } return m; };
+const manual = () => el("div", "manual", "✋ Nothing sends itself. Copy, open LinkedIn, press send there, then mark it here.");
+
+// Connections: connect, import, see the relevant ones, decide. Adding only puts a draft in Today.
+function addConn(c) {
+  c.dec = "added";
+  const step = c.kind === "intro" ? "intro" : "msg1";
+  LEADS.push({ id: LEADS.length + 1, name: c.name, role: c.role, org: c.org, lvl: c.lvl, known: c.since, viaIntro: c.kind === "intro", step,
+    why: `Connected since ${c.since}. ${c.why}`, text: { [step]: c.text } });
+  toast(`${c.name.split(" ")[0]} added to Today. You send it yourself.`);
+  render();
+}
+function renderConn() {
+  if (st.conn === "none") {
+    const d = el("div", "drop");
+    d.append(el("div", "dropt", "Connect LinkedIn"), el("p", "hint", "The app reads a file LinkedIn gives you. It never logs in to LinkedIn and never sends anything."));
+    const how = el("div", "how");
+    [["Ask LinkedIn for your connections file", "Settings → Data privacy → Get a copy of your data → Connections"],
+     ["LinkedIn emails it to you", "Usually minutes, sometimes a day or two"],
+     ["Drop Connections.csv here", "Read once, matched to your targets"]].forEach(([t, s], i) => {
+      const r = el("div"); r.append(el("span", "dot", String(i + 1))); const x = el("div"); x.append(el("b", "", t), el("small", "", s)); r.append(x); how.append(r); });
+    const btns = el("div", "btns");
+    const o = el("button", "btn", "Open LinkedIn export page"); o.onclick = () => toast("Opens LinkedIn's Get a copy of your data page in a new tab");
+    const s = el("button", "btn pri", "Try with a sample file"); s.onclick = () => { st.conn = "loading"; render(); setTimeout(() => { st.conn = "ready"; if (st.tab === "conn") render(); }, 1400); };
+    btns.append(o, s); d.append(how, btns); body.append(d); return;
+  }
+  if (st.conn === "loading") {
+    const d = el("div", "drop"); const bar = el("div", "bar loadbar"); bar.append(el("i"));
+    d.append(el("div", "dropt", "Reading 1,284 connections"), bar, el("p", "hint", "Matching them to your data partner targets")); body.append(d); return;
+  }
+  const open = CONNS.filter((c) => !c.dec), added = CONNS.filter((c) => c.dec === "added").length;
+  const meters = el("div", "meters");
+  meters.append(meter("Connections read", "1,284"), meter("Worth a look", open.length), meter("Added to Today", added));
+  body.append(meters);
+  const row = el("div", "row"); row.style.marginBottom = "12px";
+  const seg = el("span", "seg");
+  [["all", "All"], ["direct", "Direct"], ["intro", "Can introduce"]].forEach(([k, label]) => {
+    const n = k === "all" ? open.length : open.filter((c) => c.kind === k).length;
+    const b = el("button", "", `${label} ${n}`); b.setAttribute("aria-pressed", String(st.cf === k)); b.onclick = () => { st.cf = k; render(); }; seg.append(b); });
+  row.append(seg, el("span", "hint", "You decide who goes in. Nothing is sent from here."));
+  body.append(row);
+  const shown = open.filter((c) => st.cf === "all" || c.kind === st.cf);
+  if (!shown.length) {
+    const e = el("div", "empty"); e.append(el("p", "", open.length ? "None left in this group." : `All decided. ${added} added to Today.`));
+    if (!open.length && added) { const g = el("button", "btn pri", "Go to Today"); g.style.marginTop = "16px"; g.onclick = () => { st.tab = "today"; render(); }; e.append(g); }
+    body.append(e); return;
+  }
+  const list = el("div", "q");
+  shown.forEach((c, i) => {
+    const item = el("div", "item"); item.style.animationDelay = i * 40 + "ms";
+    const w = who(c, false);
+    w.querySelector(".chips").prepend(el("span", "chip step", c.kind === "intro" ? `Can introduce ${c.to}` : "Direct"));
+    w.querySelector(".r").textContent += ` · connected ${c.since}`;
+    item.append(w, el("div", "why", c.why));
+    const r = el("div", "row"); r.append(el("span", "hint", c.kind === "intro" ? "Adds a drafted intro ask" : "Adds a drafted first message"));
+    const btns = el("div", "btns");
+    const skip = el("button", "btn", "Skip"); skip.onclick = () => { c.dec = "skipped"; toast(`${c.name.split(" ")[0]} skipped`); render(); };
+    const add = el("button", "btn pri", "Add to Today"); add.onclick = () => addConn(c);
+    btns.append(skip, add); r.append(btns); item.append(r); list.append(item);
+  });
+  body.append(list);
+}
+function renderToday() {
+  body.append(manual());
+  const meters = el("div", "meters");
+  meters.append(meter("Done today", st.done, st.done + queue().length), meter("Invites this week", st.week, 100), meter("Accepted, last 30 days", "31%"));
+  body.append(meters);
+  const q = queue();
+  if (!q.length) { body.append(el("div", "empty", "Nothing left for today. About ten minutes of work, all sent by you.")); return; }
+  const list = el("div", "q");
+  for (const l of q) {
+    const item = el("div", "item");
+    item.append(who(l, true), el("div", "why", l.why));
+    const plan = l.step === "connect" ? connectPlan(l) : { note: true };
+    const text = l.text[l.step] || "";
+    if (plan.note && text) item.append(el("div", "msg", text));
+    const row = el("div", "row");
+    let hint = "";
+    if (l.step === "connect" && plan.note) hint = `${text.length} / ${plan.limit} characters${plan.hint ? " · " + plan.hint : ""}`;
+    else if (l.step === "connect") hint = plan.hint;
+    const h = el("span", "hint" + (plan.limit && text.length > plan.limit ? " over" : ""), hint);
+    const btns = el("div", "btns");
+    if (plan.note && text) { const c = el("button", "btn", "Copy"); c.onclick = () => { navigator.clipboard?.writeText(text).catch(() => {}); toast("Copied"); }; btns.append(c); }
+    const o = el("button", "btn", l.step === "email" ? "Open in Gmail" : "Open profile"); o.onclick = () => toast(l.step === "email" ? "Opens a Gmail draft in a new tab" : "Opens their LinkedIn profile in a new tab"); btns.append(o);
+    const d = el("button", "btn pri", STEP[l.step].verb); d.onclick = () => finish(l); btns.append(d);
+    row.append(h, btns); item.append(row);
+    list.append(item);
+  }
+  body.append(list);
+}
+function renderBoard() {
+  const board = el("div", "board");
+  COLS.forEach((name, i) => {
+    const inCol = LEADS.filter((l) => STEP[l.step].col === i);
+    const col = el("div", "col"); const h = el("h4"); h.append(el("span", "", name), el("span", "", String(inCol.length))); col.append(h);
+    for (const l of inCol) {
+      const m = el("div", "mini"); m.onclick = () => { st.lead = l.id; st.tab = "lead"; render(); };
+      m.append(el("div", "n", l.name), el("div", "r", l.org));
+      if (l.step === "requested") {
+        m.append(el("div", "r", `Waiting ${l.days || 0} day${l.days === 1 ? "" : "s"}`));
+        const a = el("button", "btn sm", "Accepted"); a.onclick = (e) => { e.stopPropagation(); l.step = "msg1"; l.doneToday = false; l.why = "Accepted just now. " + l.why; toast(`${l.name.split(" ")[0]} added to Today: Message 1`); render(); };
+        m.append(a);
+      } else if (STEP[l.step].chip && !l.doneToday) m.append(el("span", "chip step", STEP[l.step].chip + " due"));
+      col.append(m);
+    }
+    board.append(col);
+  });
+  body.append(board);
+}
+function renderLead() {
+  const l = LEADS.find((x) => x.id === st.lead);
+  const item = el("div", "item"); item.append(who(l, false), el("div", "why", l.why)); body.append(item);
+  const path = l.viaIntro
+    ? [["known", `Connected since ${l.known}`], ["intro", "Ask for an introduction"], ["sentintro", "Waiting for the introduction"], ["replied", "Introduced"], ["call", "Call booked"]]
+    : l.known
+    ? [["known", `Connected since ${l.known}`], ["msg1", "Message 1"], ["sent1", "Waiting 4 days"], ["msg2", "Message 2"], ["sent2", "Waiting 5 days, then email"], ["replied", "Replied"], ["call", "Call booked"]]
+    : l.step === "email" || l.step === "emailed"
+    ? [["warm", "Warm up"], ["connect", "Connect"], ["requested", "No accept in 14 days"], ["email", "Email"], ["emailed", "Email follow-ups"]]
+    : [["warm", "Warm up"], ["connect", "Connect"], ["requested", "Waiting to be accepted"], ["msg1", "Message 1"], ["sent1", "Waiting 4 days"], ["msg2", "Message 2"], ["sent2", "Waiting 5 days, then email"], ["replied", "Replied"], ["call", "Call booked"]];
+  const at = path.findIndex(([k]) => k === l.step);
+  const steps = el("div", "steps"); steps.style.marginTop = "16px";
+  path.forEach(([k, label], i) => {
+    const s = el("div", "st " + (i < at ? "done" : i === at ? "now" : "todo"));
+    s.append(el("div", "dot", i < at ? "✓" : String(i + 1)));
+    const r = el("div"); r.append(el("div", "t", label));
+    if (i === at && l.text[k]) r.append(el("div", "msg", l.text[k]));
+    else if (i > at && l.text[k]) r.append(el("div", "d", "Draft ready"));
+    s.append(r); steps.append(s);
+  });
+  body.append(steps);
+}
+function render() {
+  body.innerHTML = "";
+  document.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === st.tab)));
+  document.querySelectorAll("[data-acct]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.acct === st.acct)));
+  ({ conn: renderConn, today: renderToday, board: renderBoard, lead: renderLead })[st.tab]();
+}
+document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { st.tab = b.dataset.tab; render(); }));
+document.querySelectorAll("[data-acct]").forEach((b) => (b.onclick = () => { st.acct = b.dataset.acct; render(); }));
+render();
+
+// ---------- decisions ----------
+const DECISIONS = [
+  { q: "What is a data partnership?", o: [
+    ["Their groups run roundtables", "Consented, de-identified conversation data goes to our research. They get free sessions and the insights.", true],
+    ["License what they already have", "Pay for existing recordings or transcripts of group discussions."],
+    ["Joint research", "Co-design a study and publish together."] ] },
+  { q: "How do we get the connections?", o: [
+    ["Upload LinkedIn's own export file", "Official and free, no risk to the account. Upload a new file each month to refresh.", true],
+    ["A tool that logs in as the founder", "Always up to date, but breaks LinkedIn's rules and can get the account restricted."] ] },
+  { q: "Which LinkedIn account?", o: [
+    ["Premium or Sales Navigator", "300-character notes on every request, no monthly cap.", true],
+    ["Free", "Requests go without a note; 3 notes a month for Dream targets."] ] },
+  { q: "How many requests a day?", o: [
+    ["15 a day", "About 75 a week, safely under the limit, ten minutes of work.", true],
+    ["20 a day", "Right at the weekly limit. More reach, more risk of a restriction."] ] },
+];
+const decEl = document.getElementById("decisions");
+DECISIONS.forEach((d) => {
+  const card = el("div", "card dec"); card.append(el("h3", "", d.q));
+  const picks = el("div", "picks");
+  d.o.forEach(([label, sub, rec]) => {
+    const b = el("button", "pick"); b.setAttribute("aria-pressed", String(Boolean(rec)));
+    const top = el("span", "", label); if (rec) top.append(el("span", "rec", "my pick"));
+    b.append(top, el("small", "", sub));
+    b.onclick = () => picks.querySelectorAll(".pick").forEach((p) => p.setAttribute("aria-pressed", String(p === b)));
+    picks.append(b);
+  });
+  card.append(picks); decEl.append(card);
+});
+</script>
+</body>
+</html>
