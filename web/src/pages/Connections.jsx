@@ -13,8 +13,11 @@ import { FileInput } from "@astryxdesign/core/FileInput";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Drawer, DrawerHeader } from "@astryxdesign/core/Drawer";
-import { ExternalLink, Search, Plus, X, Hand, Network, List as ListIcon } from "lucide-react";
-import { useApp, call } from "../data.js";
+import { ExternalLink, Search, Plus, X, Hand, Network, Mail, List as ListIcon } from "lucide-react";
+import { useApp, call, safeUrl, copyText } from "../data.js";
+import { Grade, Level } from "../bits.jsx";
+
+const fmtFull = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" });
 import { isZip, connectionsCsvFromZip } from "../unzip.js";
 import { HowYouKnow } from "../Hierarchy.jsx";
 import { ConnectionsMap } from "./ConnectionsMap.jsx";
@@ -91,8 +94,12 @@ function Empty({ onDone }) {
   );
 }
 
-function Person({ v, busy, onSkip, onAdd, onUndo }) {
+// `detail` is the full card in the side panel: it adds the score reasons and contact details, like a pipeline lead.
+function Person({ v, busy, onSkip, onAdd, onUndo, detail }) {
+  const { toast } = useApp();
   const chip = v.kind === "intro" ? `Can introduce ${v.target?.name}` : v.kind === "direct" ? "Direct" : "";
+  const li = safeUrl(v.linkedin);
+  const r = v.rating;
   return (
     <Card padding={4} className="conn-card">
       <VStack gap={2}>
@@ -107,8 +114,22 @@ function Person({ v, busy, onSkip, onAdd, onUndo }) {
           {chip && <Badge variant={v.kind === "intro" ? "purple" : "info"} label={chip} />}
           {v.decision === "skipped" && <Badge variant="neutral" label="Skipped" />}
           {(v.decision === "added" || v.in_pipeline) && <Badge variant="success" label="In pipeline" />}
+          {detail && r && <Grade rating={r} />}
+          {detail && r && <Level rating={r} />}
+          {detail && v.group && <Badge variant="neutral" label={v.group} />}
         </HStack>
         {(v.why || v.known) && <Text size="sm">{[v.why, v.known].filter(Boolean).join(" ")}</Text>}
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          {li && <Button size="sm" icon={<ExternalLink size={14} />} label="LinkedIn profile" href={li} />}
+          {detail && v.email && <Button size="sm" variant="ghost" icon={<Mail size={14} />} label={v.email} onClick={() => copyText(v.email, toast, "Email copied")} />}
+        </HStack>
+        {detail && r && (
+          <VStack gap={1}>
+            <Text size="sm" weight="medium">Why they scored {r.score}</Text>
+            <ul className="why-list">{r.why.map((w) => <li key={w}><Text size="sm" as="span">{w.replace(/ \+\d+$/, "")}</Text></li>)}</ul>
+            <Text size="sm" color="secondary">{[r.category, v.connected_on ? `connected ${fmtFull(v.connected_on)}` : "", v.email ? "" : "no email in LinkedIn's file"].filter(Boolean).join(" · ")}</Text>
+          </VStack>
+        )}
         <HStack gap={2} vAlign="center" wrap="wrap" className="conn-actions">
           <Text size="sm" color="secondary" style={{ flex: 1, minWidth: 160 }}>
             {v.kind === "intro" ? "Adds a drafted introduction ask" : "Adds a drafted first message"}
@@ -294,7 +315,7 @@ export function Connections() {
           <div className="drawer-body conn-page">
             {sel.person ? (
               <VStack gap={4}>
-                <Person v={sel.person} busy={busyId === sel.id} onSkip={() => skip(sel.person)} onUndo={() => undo(sel.person)} onAdd={() => add(sel.person)} />
+                <Person detail v={sel.person} busy={busyId === sel.id} onSkip={() => skip(sel.person)} onUndo={() => undo(sel.person)} onAdd={() => add(sel.person)} />
                 <Card padding={4}><HowYouKnow data={sel.around} onPick={pick} /></Card>
               </VStack>
             ) : <Spinner label="Loading" />}

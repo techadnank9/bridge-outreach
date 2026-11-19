@@ -1187,6 +1187,9 @@ function connectionView(x, targets, known) {
     id: x.id, name: x.name, role: x.position, company: x.company, linkedin: x.linkedin, email: x.email,
     connected_on: x.connected_on, year: x.connected_on.slice(0, 4), kind, why, known: k.line, score: k.score,
     target: target ? { name: target.name, role: target.role, org: target.org } : null,
+    // The same score a pipeline lead gets, so the card reads like the pipeline panel. Being connected counts as a warm path.
+    rating: rate({ name: x.name, role: x.position, linkedin: x.linkedin, email: x.email, fit: why, warm_path: "LinkedIn connection" }),
+    group: (CONNECTION_GROUPS.find((g) => g.key === (x.group_key || groupOf(x.position, x.company))) || {}).name || "",
     decision: x.decision, contact_id: x.contact_id || k.contactId, in_pipeline: Boolean(k.contactId) && x.decision !== "added",
   };
 }
