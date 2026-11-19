@@ -16,10 +16,24 @@ import { Badge } from "@astryxdesign/core/Badge";
 import {
   Sparkles, Send, Mail, Copy, UserRound, Search, Globe, AtSign, Wand2, CheckCheck, CalendarCheck, Ban, Trash2, Save, Telescope, Maximize2, ArrowLeft, X, FileText,
 } from "lucide-react";
-import { useApp, safeUrl, linkedinSearch, gmailCompose, copyText, fmtDate, daysSince, followupsSentCount, title, person } from "./data.js";
+import { call, useApp, safeUrl, linkedinSearch, gmailCompose, copyText, fmtDate, daysSince, followupsSentCount, title, person } from "./data.js";
 import { Grade, Kind, Level, Stage, DreamStar, WhyNow } from "./bits.jsx";
+import { HowYouKnow } from "./Hierarchy.jsx";
 
 const LI_NOTE_LIMIT = 300;
+
+// How the founder knows this lead, from their LinkedIn connections: hidden when there is nothing to draw
+// (not a connection, and nobody the founder knows works at the same organisation).
+function KnowThem({ c }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let live = true;
+    call("GET", `/api/connections/around/${c.id}`).then((d) => live && setData(d)).catch(() => live && setData(null));
+    return () => { live = false; };
+  }, [c.id, c.org, c.name, c.li_connected_on, c.intro_to]);
+  if (!data || data.empty) return null;
+  return <Card padding={4}><HowYouKnow data={data} /></Card>;
+}
 
 function Field({ label, value, onSave, rows, description }) {
   const [v, setV] = useState(value || "");
@@ -79,6 +93,8 @@ function Outreach({ c }) {
           )}
         </VStack>
       </Card>
+
+      <KnowThem c={c} />
 
       <Card padding={4}>
         <VStack gap={2}>

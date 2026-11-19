@@ -12,18 +12,22 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { ExternalLink, Search, Plus, X, Hand } from "lucide-react";
+import { Drawer, DrawerHeader } from "@astryxdesign/core/Drawer";
+import { ExternalLink, Search, Plus, X, Hand, Network, List as ListIcon } from "lucide-react";
 import { useApp, call } from "../data.js";
+import { isZip, connectionsCsvFromZip } from "../unzip.js";
+import { HowYouKnow } from "../Hierarchy.jsx";
+import { ConnectionsMap } from "./ConnectionsMap.jsx";
 
 const EXPORT_PAGE = "https://www.linkedin.com/mypreferences/d/download-my-data";
 // The exact path on LinkedIn, one action per step, ending at the drop box below the list.
+// The zip LinkedIn sends can be dropped as it is: the page takes Connections.csv out of it (unzip.js).
 const STEPS = [
   ["Open LinkedIn's export page", "Or on LinkedIn: your photo, Settings & Privacy, Data privacy, Get a copy of your data", true],
   ["Choose the first option, \"Download larger data archive\"", "It is the one that includes connections. If you see a Connections tick box under the second option, that works too and is faster"],
   ["Press Request archive", "LinkedIn may ask for your password"],
-  ["Wait for LinkedIn's email, then press Download archive", "Usually within a day, sometimes two. The link works for 72 hours"],
-  ["Open the downloaded zip file", "It holds many files. The one you need is named Connections.csv"],
-  ["Drop Connections.csv in the box below", "It is read once and matched to your targets. Nothing is sent"],
+  ["When LinkedIn's email arrives, download the archive", "Usually within a day, sometimes two. The link works for 72 hours"],
+  ["Drop the zip (or Connections.csv) in the box below", "No need to open it. Only Connections.csv is read, then matched to your targets. Nothing is sent"],
 ];
 
 const Manual = () => (
@@ -42,7 +46,9 @@ function Upload({ onDone, compact }) {
     if (!f || Array.isArray(f)) return;
     setBusy(true); setError("");
     try {
-      const r = await call("POST", "/api/connections/import", { csv: await f.text() });
+      // LinkedIn's zip as it arrives, or Connections.csv taken out of it by hand.
+      const csv = (await isZip(f)) ? await connectionsCsvFromZip(f) : await f.text();
+      const r = await call("POST", "/api/connections/import", { csv });
       onDone(r);
     } catch (e) { setError(e.message); }
     setBusy(false); setFile(null);
@@ -57,8 +63,8 @@ function Upload({ onDone, compact }) {
   }
   return (
     <VStack gap={2}>
-      <FileInput label={compact ? "Upload a newer Connections.csv" : "Connections.csv"} isLabelHidden={!compact} mode={compact ? "input" : "dropzone"}
-        accept=".csv,text/csv" value={file} onChange={read} placeholder={compact ? "Choose file" : "Drop Connections.csv here, or choose it"}
+      <FileInput label={compact ? "Upload a newer LinkedIn zip or Connections.csv" : "LinkedIn zip or Connections.csv"} isLabelHidden={!compact} mode={compact ? "input" : "dropzone"}
+        accept=".csv,.zip,text/csv,application/zip,application/x-zip-compressed" value={file} onChange={read} placeholder={compact ? "Choose file" : "Drop LinkedIn's zip or Connections.csv here, or choose it"}
         description={compact ? "People already here are updated; your Add and Skip choices stay." : undefined} />
       {error && <Banner status="error" title={error} isDismissable onDismiss={() => setError("")} />}
     </VStack>
@@ -131,12 +137,26 @@ export function Connections() {
   const [searching, setSearching] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState("");
+  // The map is the first view once a file is in; List is the original one-card-at-a-time view.
+  const [view, setView] = useState("map");
+  const [map, setMap] = useState(null);
+  const [sel, setSel] = useState(null); // the person card open from the map: { id, person, around }
 
+  const loadMap = () => call("GET", "/api/connections/map").then(setMap).catch((e) => setNotice(e.message));
   useEffect(() => { call("GET", "/api/connections").then(setC).catch((e) => setError(e.message)); }, []);
+  useEffect(() => { if (C?.total && !map) loadMap(); }, [C?.total]);
 
+  const pick = async (id) => {
+    setSel((cur) => ({ id, ...(cur?.id === id ? cur : {}) }));
+    try { const r = await call("GET", `/api/connections/${id}`); setSel((cur) => (cur?.id === id ? { id, ...r } : cur)); }
+    catch (e) { toast({ body: e.message, type: "error" }); }
+  };
   const after = (r) => {
     if (r.connections) setC(r.connections);
     if (r.contacts) setS(r);
+    // Keep the map's rings and an open person card in step with Skip, Undo and Add.
+    if (r.connections) loadMap();
+    if (r.connections && sel?.id) pick(sel.id);
   };
   const imported = (r) => {
     after(r);
@@ -186,6 +206,7 @@ export function Connections() {
   if (!C.total) return <VStack gap={5} className="conn-page">{head}<Manual /><Empty onDone={imported} /></VStack>;
 
   const shown = C.open.filter((v) => filter === "all" || v.kind === filter);
+  const matchIds = found ? new Set(found.ids || found.items.map((x) => x.id)) : null;
   return (
     <VStack gap={5} className="conn-page">
       {head}
@@ -198,6 +219,14 @@ export function Connections() {
         <div><span>{C.added}</span><Text size="sm" color="secondary">added</Text></div>
       </div>
 
+      <div className="conn-viewbar">
+        <SegmentedControl label="View" value={view} onChange={setView} size="lg">
+          <SegmentedControlItem value="map" label="Map" icon={<Network size={16} />} />
+          <SegmentedControlItem value="list" label="List" icon={<ListIcon size={16} />} />
+        </SegmentedControl>
+        <Text size="sm" color="secondary">{view === "map" ? "Everyone you know, in groups. Pick one to see who is where." : "The people worth a look, best known first."}</Text>
+      </div>
+
       <form className="conn-search" onSubmit={(e) => { e.preventDefault(); search(); }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <TextInput label="Search your connections" isLabelHidden placeholder='e.g. "people at research labs" or "heads of community"' value={q}
@@ -206,7 +235,19 @@ export function Connections() {
         <Button type="submit" label="Search" isLoading={searching} isDisabled={q.trim().length < 2} />
       </form>
 
-      {found ? (
+      {view === "map" ? (
+        <VStack gap={3}>
+          {found && (
+            <HStack gap={2} vAlign="center" wrap="wrap">
+              <Text size="sm" color="secondary" style={{ flex: 1 }}>
+                {found.found ? `${found.found} match${found.found === 1 ? "" : "es"}, shown on the map. Skipped people included.` : "Nobody matches. Try other words, a company or a name."}
+              </Text>
+              <Button variant="ghost" label="Clear search" onClick={() => { setQ(""); setFound(null); }} />
+            </HStack>
+          )}
+          {map ? <ConnectionsMap map={map} matchIds={matchIds} onPick={pick} selectedId={sel?.id} /> : <Spinner label="Drawing your map" />}
+        </VStack>
+      ) : found ? (
         <VStack gap={3}>
           <HStack gap={2} vAlign="center" wrap="wrap">
             <Text size="sm" color="secondary" style={{ flex: 1 }}>
@@ -245,6 +286,20 @@ export function Connections() {
             </HStack>
           )}
         </VStack>
+      )}
+
+      {sel && (
+        <Drawer isOpen onOpenChange={(o) => !o && setSel(null)} label={sel.person?.name || "Connection"} side="end" width={460} hasScrim={false} padding={0}>
+          <DrawerHeader title="From your connections" onOpenChange={(o) => !o && setSel(null)} hasDivider={false} />
+          <div className="drawer-body conn-page">
+            {sel.person ? (
+              <VStack gap={4}>
+                <Person v={sel.person} busy={busyId === sel.id} onSkip={() => skip(sel.person)} onUndo={() => undo(sel.person)} onAdd={() => add(sel.person)} />
+                <Card padding={4}><HowYouKnow data={sel.around} onPick={pick} /></Card>
+              </VStack>
+            ) : <Spinner label="Loading" />}
+          </div>
+        </Drawer>
       )}
 
       <Card padding={4} variant="muted">

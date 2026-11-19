@@ -211,6 +211,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS connections (
   decision TEXT NOT NULL DEFAULT '', contact_id INTEGER,
   imported_at TEXT NOT NULL, updated_at TEXT NOT NULL
 )`);
+// Which of the map's seven groups a connection belongs to (see CONNECTION_GROUPS), worked out in plain code
+// from role and company. Stored so the map is one quick read; '' means not sorted yet (filled in at startup).
+addColumn("connections", "group_key", "TEXT NOT NULL DEFAULT ''");
 // One row per message sent, so the app can learn which kinds of message get replies.
 db.exec(`CREATE TABLE IF NOT EXISTS sends (
   id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id INTEGER NOT NULL, kind TEXT, level INTEGER, category TEXT,
@@ -960,6 +963,48 @@ const LEGAL = new Set(["inc", "incorporated", "ltd", "limited", "llc", "llp", "p
 const normOrg = (name) =>
   String(name || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w && !LEGAL.has(w)).join(" ");
 
+// The map's groups. A thousand people on one graph is an unreadable tangle, so the map shows at most seven
+// groups first and the founder drills in. Every connection lands in exactly one, sorted by plain regexes on
+// role and company: free, instant, and the same answer every time. Order matters: the first match wins, so
+// "Partner at Northwind Ventures" is an investor before "partner" could make them anything else, and
+// "Founder of a research lab" is a founder before the lab makes them research.
+const INVESTOR_FIRM = /\b(ventures?|capital|vc|fund|funds|investments?|angels?|seed|equity)\b/i; // the company is an investment firm
+const INVESTOR_ROLE = /\b(investor|venture|angel|general partner|limited partner|gp|lp|investment (partner|associate|manager|analyst|director)|vc)\b/i;
+const PARTNERS_FIRM_ROLE = /\b(partner|principal|associate|analyst)\b/i; // "Principal at X Partners" is usually a fund
+const CONNECTION_GROUPS = [
+  { key: "investors", name: "Investors",
+    test: (role, org) => INVESTOR_ROLE.test(role) || INVESTOR_FIRM.test(org) || (/\bpartners\b/i.test(org) && PARTNERS_FIRM_ROLE.test(role)) },
+  // People who run the whole organisation. VPs and heads of a function stay with their function below;
+  // a chief of staff supports the executive rather than being one.
+  { key: "leaders", name: "Founders and executives",
+    test: (role) => /\b(founder|co-?founder|founding|ceo|cto|coo|cfo|cpo|cmo|chief(?! of staff)|president|owner|managing director|executive director|chair(man|woman|person)?|board member|proprietor)\b/i.test(role) },
+  // Universities, labs and the people who research or teach there.
+  { key: "research", name: "Research and academia",
+    // "UX researcher" and "market research" are product and marketing work, not academia.
+    test: (role, org) => !/\b(ux|user|design|market|marketing)\s+research/i.test(role) && /\b(professor|researcher|research (scientist|fellow|associate|assistant|director|lead)|phd|ph\.d|postdoc\w*|post-doc\w*|lecturer|dean|scholar|scientist|academic)\b/i.test(role)
+      || /\b(university|universit|college|institute|laborator\w*|research|think tank)\b/i.test(org) },
+  // People who gather others: communities, programmes, events, teaching outside a university, nonprofits.
+  // "Summit" is left out of the company words because it is a common name for unrelated firms.
+  { key: "community", name: "Community, learning and events",
+    test: (role, org) => /\b(community|communities|events?|programs?|programmes?|learning|education|educator|teacher|coach\w*|facilitat\w*|organi[sz]er|curriculum|training|trainer|fellowship|volunteer|nonprofit|ngo|member(ship)?s?|convening|cohort)\b/i.test(role)
+      || /\b(foundation|association|society|network|community|meetup|academy|school|conference|festival|accelerator|incubator|nonprofit|ngo|alliance|council)\b/i.test(org) },
+  // People who build the product.
+  { key: "builders", name: "Product, design and engineering",
+    test: (role) => /\b(engineer\w*|engineering|developer|software|programmer|product|design\w*|ux|ui|data|machine learning|ml|ai|architect|devops|sre|technical|technology|frontend|backend|full[- ]?stack|mobile|ios|android|qa|cto)\b/i.test(role) },
+  // People who sell, tell the story and do deals.
+  { key: "gtm", name: "Sales, marketing and partnerships",
+    test: (role) => /\b(sales|marketing|marketer|growth|partnerships?|business development|bd|bdr|sdr|account (executive|manager|director)|brand|communications|comms|pr|public relations|customer success|revenue|gtm|go-to-market|content|social media|seo|demand gen\w*|advertising)\b/i.test(role) },
+  { key: "other", name: "Everyone else", test: () => true },
+];
+const groupOf = (role, org) => CONNECTION_GROUPS.find((g) => g.test(String(role || ""), String(org || ""))).key;
+// Sort anyone stored before groups existed. Runs once per start and only touches rows still unsorted.
+{
+  const unsorted = db.prepare("SELECT id, position, company FROM connections WHERE group_key = ''").all();
+  const set = db.prepare("UPDATE connections SET group_key = ? WHERE id = ?");
+  for (const x of unsorted) set.run(groupOf(x.position, x.company), x.id);
+  if (unsorted.length) console.log(`Sorted ${unsorted.length} connections into map groups.`);
+}
+
 function introTarget(c) {
   if (!c.intro_to) return null;
   try { return JSON.parse(c.intro_to); } catch { return null; }
@@ -979,13 +1024,13 @@ function importConnections(text) {
   const at = { first: col("first name"), last: col("last name"), url: col("url"), email: col("email address"), company: col("company"), position: col("position"), on: col("connected on") };
   const stamp = now();
   const find = db.prepare("SELECT * FROM connections WHERE key = ?");
-  const insert = db.prepare(`INSERT INTO connections (key, first_name, last_name, name, linkedin, email, company, position, connected_on, imported_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insert = db.prepare(`INSERT INTO connections (key, first_name, last_name, name, linkedin, email, company, position, connected_on, imported_at, updated_at, group_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   // A changed job means the old fit no longer holds, so it is sorted again; the founder's decision stays.
   const update = db.prepare(`UPDATE connections SET first_name = ?, last_name = ?, name = ?, linkedin = ?, email = ?, company = ?, position = ?, connected_on = ?,
     fit = CASE WHEN company = ? AND position = ? THEN fit ELSE NULL END,
     classified_at = CASE WHEN company = ? AND position = ? THEN classified_at ELSE NULL END,
-    updated_at = ? WHERE id = ?`);
+    group_key = ?, updated_at = ? WHERE id = ?`);
   let read = 0, added = 0, updated = 0, skipped = 0;
   const seen = new Set();
   for (const cells of rows.slice(headerAt + 1)) {
@@ -1004,10 +1049,10 @@ function importConnections(text) {
     const old = find.get(key);
     if (old) {
       update.run(first, last, name, linkedin || old.linkedin, email || old.email, company, position, on || old.connected_on,
-        company, position, company, position, stamp, old.id);
+        company, position, company, position, groupOf(position, company), stamp, old.id);
       updated++;
     } else {
-      insert.run(key, first, last, name, linkedin, email, company, position, on, stamp, stamp);
+      insert.run(key, first, last, name, linkedin, email, company, position, on, stamp, stamp, groupOf(position, company));
       added++;
     }
   }
@@ -1164,6 +1209,94 @@ function connectionsState() {
   };
 }
 
+// What the map marks on a person, cheapest checks only (no notes scan, so 5,000 people stay quick):
+// already in the pipeline, can introduce a target, a direct fit, skipped, or nothing.
+function markOf(x, targets, known) {
+  if (x.decision === "added" || known.byKey.has(x.key) || known.byName.has((x.name || "").toLowerCase())) return { mark: "pipeline" };
+  const target = (targets.get(normOrg(x.company)) || [])
+    .find((t) => t.name.toLowerCase() !== x.name.toLowerCase() && (!t.linkedin || profileKey(t.linkedin) !== x.key));
+  if (x.decision === "skipped") return { mark: "skipped" };
+  if (target) return { mark: "intro", via: target.name };
+  return { mark: x.fit ? "direct" : "" };
+}
+const MARK_ORDER = { pipeline: 0, intro: 1, direct: 2, "": 3, skipped: 4 };
+const NO_COMPANY = "No company listed";
+
+// The map: groups, then the organisations in each, then the people at each. Everything in one read so
+// drilling in and highlighting search matches is instant on the page. People are sent as short rows
+// (see person_fields) to keep 5,000 connections small; marked people and the longest known come first.
+function connectionsMap() {
+  const all = db.prepare("SELECT id, key, name, position, company, connected_on, fit, decision, group_key FROM connections").all();
+  const targets = targetsByOrg(), known = knownSignals();
+  const groups = new Map(CONNECTION_GROUPS.map((g) => [g.key, { key: g.key, name: g.name, count: 0, marked: 0, orgs: new Map() }]));
+  for (const x of all) {
+    const g = groups.get(x.group_key) || groups.get(groupOf(x.position, x.company));
+    const m = markOf(x, targets, known);
+    const orgKey = normOrg(x.company) || "";
+    if (!g.orgs.has(orgKey)) g.orgs.set(orgKey, { name: x.company || NO_COMPANY, count: 0, marked: 0, people: [] });
+    const o = g.orgs.get(orgKey);
+    const flagged = m.mark && m.mark !== "skipped";
+    g.count++; o.count++;
+    if (flagged) { g.marked++; o.marked++; }
+    o.people.push([x.id, x.name, x.position, x.connected_on.slice(0, 4), m.mark, m.via || "", x.connected_on]);
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    if (!g.count) continue; // empty groups are not drawn
+    const orgs = [...g.orgs.values()].map((o) => {
+      o.people.sort((a, b) => MARK_ORDER[a[4]] - MARK_ORDER[b[4]] || (a[6] || "9999").localeCompare(b[6] || "9999"));
+      return { ...o, people: o.people.map((p) => p.slice(0, 6)) };
+    });
+    // Largest first; "No company listed" always last because it is not really an organisation.
+    orgs.sort((a, b) => (a.name === NO_COMPANY) - (b.name === NO_COMPANY) || b.count - a.count || b.marked - a.marked || a.name.localeCompare(b.name));
+    out.push({ key: g.key, name: g.name, count: g.count, marked: g.marked, orgs });
+  }
+  return { total: all.length, person_fields: ["id", "name", "role", "year", "mark", "via"], groups: out };
+}
+
+// "How you know them": the founder, the person they know, and (for an introduction) who that person can
+// introduce, plus the other people the founder knows at the same organisation. For a connection (the card on
+// the Connections page) or a pipeline lead (the profile). Returns { empty: true } when there is nothing to draw.
+function connectionsAround({ connectionId, contactId }) {
+  const targets = targetsByOrg(), known = knownSignals();
+  let person = null, target = null, orgName = "", selfKey = "", selfId = 0, selfName = "";
+  if (connectionId) {
+    const x = db.prepare("SELECT * FROM connections WHERE id = ?").get(connectionId);
+    if (!x) return { empty: true };
+    const v = connectionView(x, targets, known);
+    person = { name: x.name, role: x.position, year: x.connected_on.slice(0, 4) };
+    target = v.target ? { name: v.target.name, role: v.target.role || "" } : null;
+    orgName = x.company; selfId = x.id; selfName = x.name;
+  } else {
+    const c = getContact(contactId);
+    if (!c) return { empty: true };
+    orgName = c.org; selfKey = profileKey(c.linkedin); selfName = c.name || "";
+    if (c.li_connected_on) {
+      person = { name: c.name || c.org, role: c.role || "", year: /^\d{4}/.test(c.li_connected_on) ? c.li_connected_on.slice(0, 4) : "" };
+      const t = introTarget(c);
+      target = t ? { name: t.name, role: t.role || "" } : null;
+    } else {
+      // Not a connection: the people the founder knows there are the way in, and this lead is who they lead to.
+      target = { name: c.name || c.org, role: c.role || "" };
+    }
+  }
+  const key = normOrg(orgName);
+  const others = key.length < 2 ? [] : db.prepare("SELECT id, key, name, position, company, connected_on, fit, decision FROM connections").all()
+    .filter((y) => y.id !== selfId && normOrg(y.company) === key && (!selfKey || y.key !== selfKey) && y.name.toLowerCase() !== selfName.toLowerCase())
+    .map((y) => ({ id: y.id, name: y.name, role: y.position, year: y.connected_on.slice(0, 4), mark: markOf(y, targets, known).mark, on: y.connected_on }))
+    .sort((a, b) => MARK_ORDER[a.mark] - MARK_ORDER[b.mark] || (a.on || "9999").localeCompare(b.on || "9999"));
+  if (!person && !others.length) return { empty: true };
+  // The one they can introduce is drawn on its own branch, so it is counted here but not listed again.
+  const listed = target ? others.filter((y) => y.name.toLowerCase() !== target.name.toLowerCase()) : others;
+  return {
+    mode: person ? (target ? "intro" : "direct") : "org",
+    person, target,
+    org: { name: orgName || NO_COMPANY, known: others.length + (person ? 1 : 0) },
+    others: listed.slice(0, 6).map(({ on, ...o }) => o),
+    more: Math.max(0, listed.length - 6),
+  };
+}
+
 const STOP = new Set(["people", "person", "who", "at", "in", "the", "a", "an", "of", "for", "and", "or", "with", "work", "works", "working", "from", "my", "me", "find", "show", "someone", "anyone", "that", "to", "on"]);
 const searchCache = new Map();
 // Plain-words search over every imported connection, skipped ones included. The model only turns the words
@@ -1197,7 +1330,8 @@ async function searchConnections(q) {
     if (n) hits.push({ n, v: connectionView(x, targets, known) });
   }
   hits.sort((a, b) => b.n - a.n || b.v.score - a.v.score);
-  return { items: hits.slice(0, 100).map((h) => h.v), found: hits.length, how, terms };
+  // ids: every match, so the map can highlight all of them, not only the first 100 cards.
+  return { items: hits.slice(0, 100).map((h) => h.v), ids: hits.map((h) => h.v.id), found: hits.length, how, terms };
 }
 
 // Add: the person becomes a pipeline lead, already connected, with a drafted first message or introduction ask.
@@ -1234,6 +1368,14 @@ async function addConnection(id) {
 async function connectionRoutes(req, res, parts) {
   const method = req.method;
   if (method === "GET" && parts.length === 2) return send(res, 200, connectionsState());
+  // Read-only views for the map and the "How you know them" graphic.
+  if (method === "GET" && parts[2] === "map" && parts.length === 3) return send(res, 200, connectionsMap());
+  if (method === "GET" && parts[2] === "around" && Number.isInteger(Number(parts[3]))) return send(res, 200, connectionsAround({ contactId: Number(parts[3]) }));
+  if (method === "GET" && parts.length === 3 && Number.isInteger(Number(parts[2]))) {
+    const x = db.prepare("SELECT * FROM connections WHERE id = ?").get(Number(parts[2]));
+    if (!x) return send(res, 404, { error: "Connection not found." });
+    return send(res, 200, { person: connectionView(x, targetsByOrg(), knownSignals()), around: connectionsAround({ connectionId: x.id }) });
+  }
   if (method === "POST" && parts[2] === "import") {
     const body = await readJson(req);
     const result = importConnections(body.csv);

@@ -171,3 +171,122 @@ dialog.astryx-drawer .astryx-drawer-header { padding: 18px 16px 6px 22px; }
 
 /* A lead already connected on LinkedIn: message, then Copy, Open profile and Sent */
 .li-sent-row button, .li-sent-row a { min-height: 44px; }
+
+/* Connections map and "How you know them". Groups first, then organisations, then people: never a tangle. */
+.conn-viewbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* A tree with connector lines, used by the phone map, the org lists and the small profile graphic.
+   Lines hang from the centre of the parent's round mark (20px in) and meet each child at its middle (26px down). */
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { margin-left: 20px; }
+.tree li { position: relative; padding: 4px 0; min-width: 0; }
+.tree ul > li { padding-left: 18px; }
+.tree ul > li::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1.5px solid rgb(255 255 255 / 0.14); }
+.tree ul > li::after { content: ""; position: absolute; left: 0; top: 26px; width: 15px; border-top: 1.5px solid rgb(255 255 255 / 0.14); }
+.tree ul > li:last-child::before { bottom: auto; height: 26px; }
+
+.hnode { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; max-width: 100%; padding: 4px 12px 4px 4px; border-radius: 999px;
+  border: 1px solid transparent; background: transparent; color: inherit; font: inherit; text-align: left; vertical-align: top; }
+button.hnode { cursor: pointer; }
+button.hnode:hover { background: rgb(255 255 255 / 0.05); }
+button.hnode:focus-visible, .cmap button:focus-visible { outline: 2px solid #9db8ff; outline-offset: 2px; }
+.hnode.is-selected { background: rgba(126,166,255,.12); border-color: rgba(126,166,255,.45); }
+.hnode-dot { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  letter-spacing: .02em; background: #262b34; color: #d6dae2; }
+.ring-direct { box-shadow: 0 0 0 2px #14171d, 0 0 0 4px #5ea8ff; }
+.ring-intro { box-shadow: 0 0 0 2px #14171d, 0 0 0 4px #b48cff; }
+.ring-pipeline { box-shadow: 0 0 0 2px #14171d, 0 0 0 4px #4fd18b; }
+.hnode-text { display: grid; min-width: 0; }
+.hnode-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hnode-sub { font-size: 12px; color: var(--color-text-secondary, #9aa1ad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hnode-you .hnode-dot { background: linear-gradient(135deg, #7ea6ff, #b48cff); color: #0b0d12; font-size: 10px; }
+.hnode-org .hnode-dot { border-radius: 9px; background: #2d3340; }
+.hnode-focus .hnode-name { font-weight: 650; }
+.hnode-focus .hnode-dot { box-shadow: 0 0 0 2px #14171d, 0 0 0 4px #e6e9ef; }
+.hnode-target .hnode-dot { background: rgba(180,140,255,.14); color: #d4c0ff; outline: 1.5px dashed #b48cff; outline-offset: 2px; }
+.hnode-muted { opacity: .5; }
+.hnode-more { font-size: 13px; color: #9db8ff; padding-left: 12px; }
+span.hnode-more { color: var(--color-text-secondary, #9aa1ad); }
+.hyk { display: grid; gap: 8px; }
+
+.cmap { container-type: inline-size; display: grid; gap: 12px; padding: 14px 16px; border-radius: 16px;
+  background: radial-gradient(ellipse at 50% 45%, rgba(126,166,255,.07), transparent 65%), var(--color-background-surface, rgba(255,255,255,.02));
+  border: 1px solid var(--color-border-default, rgba(255,255,255,.08)); }
+.cmap-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: space-between; min-height: 44px; }
+.cmap-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.cmap-crumbs li { display: inline-flex; align-items: center; gap: 2px; color: var(--color-text-secondary, #9aa1ad); }
+.cmap-crumbs button { min-height: 44px; padding: 0 8px; background: none; border: 0; border-radius: 8px; color: #9db8ff; font: inherit; cursor: pointer; }
+.cmap-crumbs button:hover { background: rgb(255 255 255 / 0.05); }
+.cmap-crumbs [aria-current] { color: var(--color-text-primary, #e6e9ef); font-weight: 600; padding: 0 8px; }
+.cmap-back:focus { outline: none; }
+
+/* Level 0, wide screens: You in the middle, groups around it */
+.cmap-radial { position: relative; height: clamp(480px, 52cqi, 600px); margin: 4px 0 44px; }
+.cmap-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.cmap-lines line { stroke-opacity: .5; }
+.cmap-lines .is-dim { stroke-opacity: .1; }
+.cmap-you { position: absolute; transform: translate(-50%, -36px); display: grid; justify-items: center; gap: 6px; pointer-events: none; }
+.cmap-you-dot { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #0b0d12;
+  background: linear-gradient(135deg, #7ea6ff, #b48cff); box-shadow: 0 0 0 6px rgba(126,166,255,.12), 0 8px 32px rgba(126,166,255,.28); }
+.cmap-you-sub { font-size: 12px; color: var(--color-text-secondary, #9aa1ad); background: rgba(12,14,18,.75); padding: 1px 8px; border-radius: 6px; }
+.cmap-bubble { position: absolute; transform: translate(-50%, calc(var(--d) / -2)); display: grid; justify-items: center; gap: 4px;
+  width: max(var(--d), 150px); padding: 0; background: none; border: 0; border-radius: 16px; color: inherit; font: inherit; cursor: pointer; }
+.cmap-bubble-disc { width: var(--d); height: var(--d); border-radius: 50%; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--c) 16%, #14171d); border: 1.5px solid color-mix(in srgb, var(--c) 70%, transparent); }
+.cmap-bubble-disc span { font-size: clamp(15px, calc(var(--d) / 4.2), 26px); font-weight: 650; color: var(--c); font-variant-numeric: tabular-nums; }
+.cmap-bubble-name { font-size: 14px; font-weight: 600; text-align: center; line-height: 1.25; max-width: 160px; }
+.cmap-bubble-sub { font-size: 12px; color: var(--color-text-secondary, #9aa1ad); }
+.cmap-bubble:hover .cmap-bubble-disc { box-shadow: 0 0 0 6px color-mix(in srgb, var(--c) 16%, transparent); }
+.cmap-bubble[disabled], .cmap-row[disabled] { opacity: .3; cursor: default; }
+
+/* Level 0 on phones, and level 1 on phones: indented trees */
+.cmap-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 12px 6px 6px; border-radius: 12px; text-align: left;
+  background: rgb(255 255 255 / 0.03); border: 1px solid rgb(255 255 255 / 0.07); color: inherit; font: inherit; cursor: pointer; }
+.cmap-row > svg { margin-left: auto; flex: none; color: var(--color-text-secondary, #9aa1ad); }
+.cmap-row-disc { flex: none; width: var(--s); height: var(--s); border-radius: 50%; background: color-mix(in srgb, var(--c) 22%, #14171d); border: 1.5px solid var(--c); }
+.cmap-tree > li > ul > li { padding-top: 6px; padding-bottom: 6px; }
+
+/* Level 1, wide screens: an organisation chart. Lines are drawn by measuring the cards (ConnectionsMap.jsx). */
+.cmap-chart { position: relative; }
+.cmap-chart-lines { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.cmap-chart-lines path { fill: none; stroke-width: 1.5; stroke-opacity: .5; stroke-linejoin: round; }
+.cmap-root { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; width: max-content; max-width: 100%; min-height: 44px;
+  padding: 6px 16px 6px 6px; border-radius: 999px; background: color-mix(in srgb, var(--c) 12%, #14171d); border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); }
+.cmap-chart > .cmap-root { margin: 0 auto; }
+.cmap-root-disc { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--c); }
+.cmap-orgs { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 40px 16px; margin-top: 44px; }
+@container (max-width: 980px) { .cmap-orgs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cmap-org { min-width: 0; padding: 6px; border-radius: 14px; background: #171a21; border: 1px solid rgb(255 255 255 / 0.08); }
+.cmap-org-head { display: grid; width: 100%; min-height: 44px; padding: 6px 10px; border-radius: 10px; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.cmap-org-head:hover { background: rgb(255 255 255 / 0.05); }
+.cmap-org-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmap-org-sub { font-size: 12px; color: var(--color-text-secondary, #9aa1ad); }
+.cmap-leaves > ul { margin-left: 22px; }
+
+/* Level 2: everyone at one organisation, in columns */
+.tree ul.cmap-people-grid { margin-left: 0; margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 12px; }
+.tree ul.cmap-people-grid > li { padding-left: 0; }
+.tree ul.cmap-people-grid > li::before, .tree ul.cmap-people-grid > li::after { display: none; }
+
+.cmap-pager { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.cmap-foot { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid rgb(255 255 255 / 0.06); }
+.cmap-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--color-text-secondary, #9aa1ad); }
+.cmap-legend li { display: inline-flex; align-items: center; gap: 8px; }
+.cmap-legend .hnode-dot { width: 10px; height: 10px; }
+
+/* Subtle motion only, and none for people who ask their system for less */
+@media (prefers-reduced-motion: no-preference) {
+  .cmap-stage { animation: cmap-in .26s ease-out; }
+  .cmap-bubble { animation: cmap-pop .42s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i) * 35ms); }
+  .cmap-bubble-disc { transition: box-shadow .2s ease, scale .2s ease; }
+  .cmap-bubble:hover .cmap-bubble-disc { scale: 1.04; }
+  .cmap-org { animation: cmap-fade .3s ease-out both; animation-delay: calc(var(--i) * 20ms); }
+  .cmap-lines line { animation: cmap-fade .5s ease-out both; }
+}
+@keyframes cmap-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes cmap-pop { from { opacity: 0; scale: .85; } }
+@keyframes cmap-fade { from { opacity: 0; } }
+.cmap-row .hnode-name { white-space: normal; line-height: 1.3; }
+/* In the small profile graphic, roles wrap rather than cut off, so the line about how they connect stays readable */
+.hyk .hnode-name, .hyk .hnode-sub { white-space: normal; }
+.hyk .hnode { border-radius: 22px; }
